@@ -1,0 +1,6 @@
+{
+  "name": "ExpoTime CRM",
+  "description": "واجهة بسيطة لمندوبي مبيعات ExpoTime لإدارة الشركات وتحديث المتابعات عبر Baserow API.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
