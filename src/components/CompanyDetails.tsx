@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { toast } from "../lib/toast";
 import { 
   X, 
@@ -218,10 +218,17 @@ export default function CompanyDetails({
     reader.readAsDataURL(file);
   };
 
-  // معالجة تغيير الحالة وتوليد ملاحظة ذكية من جيمناي فوراً
+  // تتبّع آخر ملاحظة مُولّدة تلقائياً للتمييز بينها وبين ما يكتبه المستخدم يدوياً
+  const lastAutoNoteRef = useRef("");
+
+  // معالجة تغيير الحالة: حالة المتابعة هي الأساس، والملاحظة تُقترح مترابطة معها
   const handleStatusChange = async (newStatus: string) => {
     setStatus(newStatus);
     if (!newStatus) return;
+
+    // لا نستبدل ملاحظة كتبها المستخدم يدوياً؛ نستبدل فقط الملاحظة الفارغة أو المُولّدة سابقاً
+    const trimmed = notes.trim();
+    const isManualNote = trimmed !== "" && trimmed !== lastAutoNoteRef.current.trim();
 
     setGeneratingNote(true);
     try {
@@ -237,12 +244,13 @@ export default function CompanyDetails({
       });
       if (response.ok) {
         const data = await response.json();
-        if (data.success && data.note) {
+        if (data.success && data.note && !isManualNote) {
           setNotes(data.note);
+          lastAutoNoteRef.current = data.note;
         }
       }
     } catch (e) {
-      console.error("خطأ توليد ملاحظة ذكية من جيمناي:", e);
+      console.error("خطأ توليد ملاحظة المتابعة:", e);
     } finally {
       setGeneratingNote(false);
     }
@@ -444,6 +452,159 @@ ${itemsStr}
     const encodedText = encodeURIComponent(messageText);
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}`;
     window.open(whatsappUrl, "_blank");
+  };
+
+  // تجهيز بنود وإجماليات عرض السعر للعرض/الطباعة
+  const buildQuoteData = (q: any) => {
+    const items =
+      Array.isArray(q.items) && q.items.length > 0
+        ? q.items
+        : [
+            {
+              description: q["تفاصيل الخدمة / المعرض"] || "تصميم وتنفيذ جناح عرض",
+              qty: 1,
+              price: Number(q["مبلغ العرض"]) || 0,
+              total: Number(q["مبلغ العرض"]) || 0,
+            },
+          ];
+    const subtotal = items.reduce(
+      (acc: number, it: any) => acc + (Number(it.qty) || 1) * (Number(it.price) || 0),
+      0
+    );
+    const vat = subtotal * 0.15;
+    const grand = subtotal + vat;
+    return { items, subtotal, vat, grand };
+  };
+
+  const fmt = (n: number) =>
+    Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // توليد مستند عرض سعر رسمي قابل للطباعة/الحفظ كـ PDF والتوقيع من العميل
+  const printOfficialQuote = (q: any) => {
+    const { items, subtotal, vat, grand } = buildQuoteData(q);
+    const clientName = getSafeString(company["اسم الشركة"]);
+    const clientPhone = getSafeString(company["الجوال الرئيسي"] || company["جوال"]);
+    const clientEmail = getSafeString(company["البريد الإلكتروني"] || company["بريد"]);
+    const exhibition = q["المعرض"] || company["المعرض"] || "—";
+    const rep = salesperson || "مبيعات إكسبو تايم";
+    const taxNo = q["الرقم الضريبي"] || company["الرقم الضريبي"] || "";
+    const crNo = q["السجل التجاري"] || company["السجل التجاري"] || "";
+
+    const rowsHtml = items
+      .map(
+        (it: any, i: number) => `
+        <tr>
+          <td class="c">${i + 1}</td>
+          <td>${getSafeString(it.description)}</td>
+          <td class="c">${Number(it.qty) || 1}</td>
+          <td class="c">${fmt(Number(it.price) || 0)}</td>
+          <td class="c">${fmt((Number(it.qty) || 1) * (Number(it.price) || 0))}</td>
+        </tr>`
+      )
+      .join("");
+
+    const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<title>عرض سعر رسمي - ${q["رقم العرض"] || q.id}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; color: #1e293b; margin: 0; padding: 32px; }
+  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #2563eb; padding-bottom:16px; margin-bottom:20px; }
+  .brand { font-size:26px; font-weight:800; color:#2563eb; }
+  .brand span { color:#0f172a; }
+  .sub { font-size:12px; color:#64748b; margin-top:4px; }
+  .doc-title { text-align:left; }
+  .doc-title h1 { font-size:20px; margin:0; color:#0f172a; }
+  .meta { font-size:12px; color:#475569; margin-top:6px; line-height:1.8; }
+  .box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px 16px; margin-bottom:18px; }
+  .box h3 { margin:0 0 8px; font-size:13px; color:#2563eb; }
+  .grid { display:flex; flex-wrap:wrap; gap:6px 28px; font-size:13px; }
+  .grid div { min-width:200px; }
+  table { width:100%; border-collapse:collapse; margin:10px 0 4px; font-size:13px; }
+  th { background:#2563eb; color:#fff; padding:10px; text-align:right; }
+  td { border:1px solid #e2e8f0; padding:9px 10px; }
+  td.c, th.c { text-align:center; }
+  .totals { width:320px; margin-right:auto; margin-left:0; font-size:13px; }
+  .totals tr td { border:none; padding:6px 4px; }
+  .totals .g td { font-weight:800; font-size:15px; color:#0f172a; border-top:2px solid #2563eb; padding-top:10px; }
+  .terms { font-size:11.5px; color:#475569; line-height:1.9; margin-top:18px; }
+  .sign { display:flex; justify-content:space-between; margin-top:48px; gap:40px; }
+  .sign div { flex:1; text-align:center; font-size:12px; color:#334155; }
+  .sign .line { margin-top:46px; border-top:1px dashed #94a3b8; padding-top:6px; }
+  .footer { margin-top:30px; text-align:center; font-size:11px; color:#94a3b8; border-top:1px solid #e2e8f0; padding-top:12px; }
+  @media print { body { padding:0; } .noprint { display:none; } }
+</style>
+</head>
+<body>
+  <div class="head">
+    <div>
+      <div class="brand">ExpoTime <span>إكسبو تايم</span></div>
+      <div class="sub">لتصميم وتنفيذ أجنحة المعارض والمؤتمرات والديكورات الفاخرة</div>
+    </div>
+    <div class="doc-title">
+      <h1>عرض سعر رسمي</h1>
+      <div class="meta">
+        رقم العرض: <b>${q["رقم العرض"] || q.id}</b><br/>
+        تاريخ العرض: ${q["تاريخ العرض"] || "—"}<br/>
+        صالح حتى: ${q["تاريخ التحديث"] || "15 يوماً من تاريخه"}
+      </div>
+    </div>
+  </div>
+
+  <div class="box">
+    <h3>بيانات العميل</h3>
+    <div class="grid">
+      <div>الشركة: <b>${clientName || "—"}</b></div>
+      <div>الجوال: ${clientPhone || "—"}</div>
+      <div>البريد: ${clientEmail || "—"}</div>
+      <div>المعرض: ${exhibition}</div>
+      ${taxNo ? `<div>الرقم الضريبي: ${taxNo}</div>` : ""}
+      ${crNo ? `<div>السجل التجاري: ${crNo}</div>` : ""}
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th class="c">#</th><th>الوصف / البند</th><th class="c">الكمية</th><th class="c">السعر (ر.س)</th><th class="c">الإجمالي (ر.س)</th></tr>
+    </thead>
+    <tbody>${rowsHtml}</tbody>
+  </table>
+
+  <table class="totals">
+    <tr><td>المجموع قبل الضريبة:</td><td class="c">${fmt(subtotal)} ر.س</td></tr>
+    <tr><td>ضريبة القيمة المضافة (15%):</td><td class="c">${fmt(vat)} ر.س</td></tr>
+    <tr class="g"><td>الإجمالي شامل الضريبة:</td><td class="c">${fmt(grand)} ر.س</td></tr>
+  </table>
+
+  <div class="terms">
+    <b>الشروط والأحكام:</b><br/>
+    • هذا العرض صالح لمدة 15 يوماً من تاريخ إصداره.<br/>
+    • تُدفع 50% دفعة مقدمة عند اعتماد العرض والباقي قبل التسليم.<br/>
+    • تشمل الأسعار التصميم والتنفيذ والتركيب داخل أرض المعرض.<br/>
+    • يُعتمد العرض رسمياً بتوقيع العميل أدناه ويصبح ملزماً للطرفين.
+  </div>
+
+  <div class="sign">
+    <div><b>اعتماد وتوقيع العميل</b><div class="line">الاسم / التوقيع / التاريخ</div></div>
+    <div><b>عن إكسبو تايم (${rep})</b><div class="line">التوقيع والختم</div></div>
+  </div>
+
+  <div class="footer">إكسبو تايم ExpoTime · عرض سعر رسمي مُولّد إلكترونياً</div>
+
+  <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };</script>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank");
+    if (!w) {
+      toast.error("يرجى السماح بالنوافذ المنبثقة لطباعة/حفظ العرض كـ PDF.");
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
   };
 
   const handleUpdateQuotationStatus = async (qId: string, nextStatus: string) => {
@@ -1498,6 +1659,126 @@ ${itemsStr}
 
         </div>
       </motion.div>
+
+      {/* ===== مودال استعراض عرض السعر الرسمي مع تنزيل PDF والإرسال ===== */}
+      {selectedPreviewQuote && (() => {
+        const q = selectedPreviewQuote;
+        const { items, subtotal, vat, grand } = buildQuoteData(q);
+        return (
+          <div
+            className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4"
+            onClick={() => setSelectedPreviewQuote(null)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+              dir="rtl"
+            >
+              {/* رأس المودال */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 sticky top-0 bg-white rounded-t-2xl">
+                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-blue-600" />
+                  معاينة عرض السعر الرسمي ({getSafeString(q["رقم العرض"]) || q.id})
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPreviewQuote(null)}
+                  className="text-slate-400 hover:text-slate-700 text-lg font-bold px-2 cursor-pointer"
+                  aria-label="إغلاق"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* محتوى المعاينة */}
+              <div className="p-5 space-y-4 text-right">
+                <div className="flex items-start justify-between border-b-2 border-blue-600 pb-3">
+                  <div>
+                    <div className="text-xl font-black text-blue-600">
+                      ExpoTime <span className="text-slate-900">إكسبو تايم</span>
+                    </div>
+                    <div className="text-[10px] text-slate-500">لتصميم وتنفيذ أجنحة المعارض والمؤتمرات</div>
+                  </div>
+                  <div className="text-left text-[11px] text-slate-600 leading-relaxed">
+                    <div>التاريخ: {getSafeString(q["تاريخ العرض"]) || "—"}</div>
+                    <div>الحالة: {getSafeString(q["حالة العرض"]) || "—"}</div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1">
+                  <div><b>العميل:</b> {getSafeString(company["اسم الشركة"]) || "—"}</div>
+                  <div><b>الجوال:</b> {getSafeString(company["الجوال الرئيسي"]) || "—"}</div>
+                  <div><b>المعرض:</b> {getSafeString(q["المعرض"] || company["المعرض"]) || "—"}</div>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-blue-600 text-white">
+                      <tr>
+                        <th className="px-2 py-2 text-center">#</th>
+                        <th className="px-2 py-2 text-right">الوصف / البند</th>
+                        <th className="px-2 py-2 text-center">الكمية</th>
+                        <th className="px-2 py-2 text-center">السعر</th>
+                        <th className="px-2 py-2 text-center">الإجمالي</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((it: any, i: number) => (
+                        <tr key={i} className="border-t border-slate-100">
+                          <td className="px-2 py-2 text-center">{i + 1}</td>
+                          <td className="px-2 py-2">{getSafeString(it.description)}</td>
+                          <td className="px-2 py-2 text-center">{Number(it.qty) || 1}</td>
+                          <td className="px-2 py-2 text-center">{fmt(Number(it.price) || 0)}</td>
+                          <td className="px-2 py-2 text-center">{fmt((Number(it.qty) || 1) * (Number(it.price) || 0))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="text-xs space-y-1 w-full max-w-[280px] mr-auto">
+                  <div className="flex justify-between"><span className="text-slate-500">المجموع قبل الضريبة:</span><span className="font-mono">{fmt(subtotal)} ر.س</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">ض.ق.م (15%):</span><span className="font-mono">{fmt(vat)} ر.س</span></div>
+                  <div className="flex justify-between border-t-2 border-blue-600 pt-1 font-black text-slate-900"><span>الإجمالي شامل الضريبة:</span><span className="font-mono">{fmt(grand)} ر.س</span></div>
+                </div>
+
+                <p className="text-[10px] text-slate-400 leading-relaxed border-t border-slate-100 pt-2">
+                  سيتضمّن ملف الـ PDF الرسمي شروط العرض ومساحة اعتماد وتوقيع العميل وختم الشركة.
+                </p>
+              </div>
+
+              {/* أزرار الإجراءات */}
+              <div className="flex flex-wrap items-center gap-2 px-5 py-4 border-t border-slate-200 sticky bottom-0 bg-white rounded-b-2xl">
+                <button
+                  type="button"
+                  onClick={() => printOfficialQuote(q)}
+                  className="flex-1 min-w-[140px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold px-3 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <FileText className="w-4 h-4" />
+                  تنزيل / طباعة PDF رسمي 📄
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendClientQuotationWhatsApp(q)}
+                  className="flex-1 min-w-[120px] bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold px-3 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Share2 className="w-4 h-4" />
+                  واتساب 🟢
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendClientQuotationEmail(q)}
+                  disabled={isSendingClientEmail === q.id}
+                  className="flex-1 min-w-[120px] bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold px-3 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Mail className="w-4 h-4" />
+                  بريد ✉️
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

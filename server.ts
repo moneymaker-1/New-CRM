@@ -950,6 +950,93 @@ app.post("/api/accounting-requests", (req, res) => {
   });
 });
 
+// ج) تحديث حالة طلب محاسبي (إجراء المحاسب/المدير) — متاح للمدير فقط
+app.patch("/api/accounting-requests/:id", requireManager, (req, res) => {
+  const { id } = req.params;
+  const { status, notes } = req.body;
+
+  const requests = readAccountingRequests();
+  const idx = requests.findIndex((r: any) => String(r.id) === String(id));
+  if (idx === -1) {
+    return res.status(404).json({ error: "الطلب المحاسبي غير موجود." });
+  }
+
+  if (status !== undefined) requests[idx].status = status;
+  if (notes !== undefined) requests[idx].notes = notes;
+  requests[idx].actionTakenAt = new Date().toISOString();
+
+  writeAccountingRequests(requests);
+  res.json({ success: true, message: "تم تحديث حالة الطلب المحاسبي بنجاح. ✅", request: requests[idx] });
+});
+
+// قوالب ملاحظات المتابعة الافتراضية (تعمل بدون ذكاء اصطناعي) — مرتبطة بحالة المتابعة
+const FOLLOWUP_NOTE_TEMPLATES: { [key: string]: string } = {
+  "جديد":
+    "📌 الوضع الحالي: عميل جديد لم يبدأ التواصل معه بعد.\n➡️ الخطوة التالية: إجراء أول اتصال للتعريف بخدمات إكسبو تايم في تصميم وتنفيذ المعارض، وتحديد احتياج الجناح والمعرض المستهدف.",
+  "تم التواصل":
+    "📌 الوضع الحالي: تم التواصل الأولي مع العميل وعرض نبذة عن الخدمات.\n➡️ الخطوة التالية: إرسال بروفايل الشركة والأعمال السابقة، وتحديد موعد لمناقشة تصميم الجناح.",
+  "تم إرسال البروفايل":
+    "📌 الوضع الحالي: تم إرسال بروفايل إكسبو تايم وأعمالنا السابقة.\n➡️ الخطوة التالية: متابعة انطباع العميل وطلب تفاصيل مساحة الجناح والميزانية التقديرية.",
+  "تم طلب التصميم":
+    "📌 الوضع الحالي: طلب العميل تصميماً مبدئياً للجناح.\n➡️ الخطوة التالية: تجهيز التصميم ثلاثي الأبعاد للجناح وإرساله للعميل لمراجعته واعتماده.",
+  "تم إرسال العرض":
+    "📌 الوضع الحالي: تم إرسال عرض السعر الرسمي للعميل.\n➡️ الخطوة التالية: متابعة العميل للرد على العرض ومناقشة أي ملاحظات أو تعديلات على البنود.",
+  "تفاوض":
+    "📌 الوضع الحالي: العميل في مرحلة تفاوض على السعر أو نطاق التنفيذ.\n➡️ الخطوة التالية: تقديم أفضل عرض ممكن وحسم نقاط التفاوض تمهيداً لاعتماد العرض.",
+  "تم التعميد":
+    "📌 الوضع الحالي: تم اعتماد العرض من العميل رسمياً. 🎉\n➡️ الخطوة التالية: تجهيز العقد والمستندات الرسمية والبدء في تنفيذ الجناح حسب الجدول الزمني المتفق عليه.",
+  "تم التنفيذ":
+    "📌 الوضع الحالي: تم تنفيذ وتسليم جناح المعرض بنجاح. ✅\n➡️ الخطوة التالية: متابعة رضا العميل بعد المعرض وفتح فرص للتعاون في المعارض القادمة.",
+  "غير مهتم":
+    "📌 الوضع الحالي: أبدى العميل عدم اهتمامه بالخدمة حالياً.\n➡️ الخطوة التالية: الإبقاء على العلاقة وإعادة التواصل قبل موسم المعرض القادم المناسب لنشاطه.",
+};
+
+function defaultFollowupNote(status: string, companyName?: string, exhibition?: string): string {
+  const base =
+    FOLLOWUP_NOTE_TEMPLATES[status] ||
+    `📌 الوضع الحالي: تم تحديث حالة المتابعة إلى "${status}".\n➡️ الخطوة التالية: تحديد الإجراء المناسب لإتمام صفقة جناح المعرض مع العميل.`;
+  const ctx = exhibition ? `\n🎪 المعرض المستهدف: ${exhibition}.` : "";
+  return base + ctx;
+}
+
+// 0. توليد ملاحظة متابعة احترافية مرتبطة بحالة المتابعة (مع قالب افتراضي يعمل بدون مفتاح)
+app.post("/api/ai/generate-followup-note", async (req, res) => {
+  const { companyName, companyActivity, exhibition, status } = req.body;
+  if (!status || typeof status !== "string") {
+    return res.status(400).json({ error: "حالة المتابعة مطلوبة لتوليد الملاحظة." });
+  }
+
+  // عند غياب مفتاح Gemini نعيد قالباً احترافياً جاهزاً (لا يفشل أبداً)
+  if (!process.env.GEMINI_API_KEY) {
+    return res.json({ success: true, note: defaultFollowupNote(status, companyName, exhibition) });
+  }
+
+  try {
+    const prompt = `أنت مساعد مبيعات محترف في شركة "إكسبو تايم" المتخصصة في تصميم وتنفيذ أجنحة المعارض.
+اكتب ملاحظة متابعة موجزة ومنسّقة باللغة العربية لعميل، مرتبطة مباشرةً بحالة المتابعة الحالية.
+- اسم العميل: ${companyName || "غير محدد"}
+- نشاط العميل: ${companyActivity || "غير محدد"}
+- المعرض المستهدف: ${exhibition || "غير محدد"}
+- حالة المتابعة الحالية: ${status}
+
+المطلوب: سطران فقط بصيغة:
+"📌 الوضع الحالي: ... (وصف موجز للوضع وفق الحالة)"
+"➡️ الخطوة التالية: ... (إجراء عملي واضح ومناسب لمجال تصميم وتنفيذ المعارض)"
+اجعلها عملية ومختصرة ومهنية دون مقدمات.`;
+
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: prompt,
+    });
+    const note = (response.text || "").trim() || defaultFollowupNote(status, companyName, exhibition);
+    return res.json({ success: true, note });
+  } catch (error: any) {
+    console.error("خطأ توليد ملاحظة المتابعة:", error.message);
+    // سقوط آمن للقالب الافتراضي
+    return res.json({ success: true, note: defaultFollowupNote(status, companyName, exhibition) });
+  }
+});
+
 // 1. معالجة وتطهير البيانات العشوائية وتوطينها وترتيبها في الـ CRM وقابلية تعديلها
 app.post("/api/ai/clean-data", async (req, res) => {
   const { companies, text, salesRep } = req.body;
