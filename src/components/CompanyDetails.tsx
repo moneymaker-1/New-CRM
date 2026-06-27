@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { toast } from "../lib/toast";
+import { downloadQuotePdf, getQuotePdfBase64, quoteFileName } from "../lib/quotePdf";
 import { 
   X, 
   Calendar, 
@@ -379,6 +380,14 @@ export default function CompanyDetails({
         company["البريد الإلكتروني"] = customEmail;
       }
 
+      // توليد ملف PDF الرسمي لإرفاقه بالبريد
+      let pdfBase64 = "";
+      try {
+        pdfBase64 = await getQuotePdfBase64(q, company, salesperson);
+      } catch (pdfErr) {
+        console.error("تعذّر توليد PDF للإرفاق:", pdfErr);
+      }
+
       const response = await fetch("/api/quotations/send-client-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -391,14 +400,22 @@ export default function CompanyDetails({
           ],
           amount: q["مبلغ العرض"],
           exhibition: q["المعرض"] || company["المعرض"] || "",
-          repName: salesperson || "مبيعات إكسبو تايم"
+          repName: salesperson || "مبيعات إكسبو تايم",
+          pdfBase64,
+          pdfFileName: quoteFileName(q),
         }),
       });
 
       if (response.ok) {
-        toast.success(`تم إرسال عرض السعر رقم (${q.id}) للعميل عبر البريد الإلكتروني بنجاح! ✉️`);
+        const data = await response.json().catch(() => ({}));
+        if (data.simulated) {
+          toast.info("تم تجهيز العرض (وضع المحاكاة) — لم يُضبط مزوّد بريد بعد. راجع إعدادات البريد.");
+        } else {
+          toast.success(`تم إرسال عرض السعر رقم (${q.id}) مع ملف PDF رسمي لبريد العميل بنجاح! ✉️📄`);
+        }
       } else {
-        toast.error("فشل إرسال البريد الإلكتروني للعميل، يرجى المحاولة لاحقاً.");
+        const err = await response.json().catch(() => ({}));
+        toast.error(err.error || "فشل إرسال البريد الإلكتروني للعميل، يرجى المحاولة لاحقاً.");
       }
     } catch (err) {
       console.error("خطأ إرسال بريد العميل:", err);
@@ -408,11 +425,19 @@ export default function CompanyDetails({
     }
   };
 
-  const handleSendClientQuotationWhatsApp = (q: any) => {
+  const handleSendClientQuotationWhatsApp = async (q: any) => {
     const rawPhone = getSafeString(company["الجوال الرئيسي"] || company["جوال"]);
     if (!rawPhone) {
       toast.error("رقم جوال العميل غير متوفر في السجلات.");
       return;
+    }
+
+    // تنزيل ملف PDF الرسمي تلقائياً ليتمكّن المندوب من إرفاقه في محادثة واتساب
+    try {
+      await downloadQuotePdf(q, company, salesperson);
+      toast.info("تم تنزيل ملف PDF الرسمي — أرفقه في محادثة واتساب التي ستُفتح الآن. 📎");
+    } catch (e) {
+      console.error("تعذّر توليد PDF للواتساب:", e);
     }
 
     // تنظيف وتجهيز الرقم بصيغة دولية (مثل: 9665...)
@@ -479,132 +504,20 @@ ${itemsStr}
   const fmt = (n: number) =>
     Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  // توليد مستند عرض سعر رسمي قابل للطباعة/الحفظ كـ PDF والتوقيع من العميل
-  const printOfficialQuote = (q: any) => {
-    const { items, subtotal, vat, grand } = buildQuoteData(q);
-    const clientName = getSafeString(company["اسم الشركة"]);
-    const clientPhone = getSafeString(company["الجوال الرئيسي"] || company["جوال"]);
-    const clientEmail = getSafeString(company["البريد الإلكتروني"] || company["بريد"]);
-    const exhibition = q["المعرض"] || company["المعرض"] || "—";
-    const rep = salesperson || "مبيعات إكسبو تايم";
-    const taxNo = q["الرقم الضريبي"] || company["الرقم الضريبي"] || "";
-    const crNo = q["السجل التجاري"] || company["السجل التجاري"] || "";
+  const [generatingPdf, setGeneratingPdf] = useState(false);
 
-    const rowsHtml = items
-      .map(
-        (it: any, i: number) => `
-        <tr>
-          <td class="c">${i + 1}</td>
-          <td>${getSafeString(it.description)}</td>
-          <td class="c">${Number(it.qty) || 1}</td>
-          <td class="c">${fmt(Number(it.price) || 0)}</td>
-          <td class="c">${fmt((Number(it.qty) || 1) * (Number(it.price) || 0))}</td>
-        </tr>`
-      )
-      .join("");
-
-    const html = `<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="utf-8" />
-<title>عرض سعر رسمي - ${q["رقم العرض"] || q.id}</title>
-<style>
-  * { box-sizing: border-box; }
-  body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; color: #1e293b; margin: 0; padding: 32px; }
-  .head { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid #2563eb; padding-bottom:16px; margin-bottom:20px; }
-  .brand { font-size:26px; font-weight:800; color:#2563eb; }
-  .brand span { color:#0f172a; }
-  .sub { font-size:12px; color:#64748b; margin-top:4px; }
-  .doc-title { text-align:left; }
-  .doc-title h1 { font-size:20px; margin:0; color:#0f172a; }
-  .meta { font-size:12px; color:#475569; margin-top:6px; line-height:1.8; }
-  .box { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px 16px; margin-bottom:18px; }
-  .box h3 { margin:0 0 8px; font-size:13px; color:#2563eb; }
-  .grid { display:flex; flex-wrap:wrap; gap:6px 28px; font-size:13px; }
-  .grid div { min-width:200px; }
-  table { width:100%; border-collapse:collapse; margin:10px 0 4px; font-size:13px; }
-  th { background:#2563eb; color:#fff; padding:10px; text-align:right; }
-  td { border:1px solid #e2e8f0; padding:9px 10px; }
-  td.c, th.c { text-align:center; }
-  .totals { width:320px; margin-right:auto; margin-left:0; font-size:13px; }
-  .totals tr td { border:none; padding:6px 4px; }
-  .totals .g td { font-weight:800; font-size:15px; color:#0f172a; border-top:2px solid #2563eb; padding-top:10px; }
-  .terms { font-size:11.5px; color:#475569; line-height:1.9; margin-top:18px; }
-  .sign { display:flex; justify-content:space-between; margin-top:48px; gap:40px; }
-  .sign div { flex:1; text-align:center; font-size:12px; color:#334155; }
-  .sign .line { margin-top:46px; border-top:1px dashed #94a3b8; padding-top:6px; }
-  .footer { margin-top:30px; text-align:center; font-size:11px; color:#94a3b8; border-top:1px solid #e2e8f0; padding-top:12px; }
-  @media print { body { padding:0; } .noprint { display:none; } }
-</style>
-</head>
-<body>
-  <div class="head">
-    <div>
-      <div class="brand">ExpoTime <span>إكسبو تايم</span></div>
-      <div class="sub">لتصميم وتنفيذ أجنحة المعارض والمؤتمرات والديكورات الفاخرة</div>
-    </div>
-    <div class="doc-title">
-      <h1>عرض سعر رسمي</h1>
-      <div class="meta">
-        رقم العرض: <b>${q["رقم العرض"] || q.id}</b><br/>
-        تاريخ العرض: ${q["تاريخ العرض"] || "—"}<br/>
-        صالح حتى: ${q["تاريخ التحديث"] || "15 يوماً من تاريخه"}
-      </div>
-    </div>
-  </div>
-
-  <div class="box">
-    <h3>بيانات العميل</h3>
-    <div class="grid">
-      <div>الشركة: <b>${clientName || "—"}</b></div>
-      <div>الجوال: ${clientPhone || "—"}</div>
-      <div>البريد: ${clientEmail || "—"}</div>
-      <div>المعرض: ${exhibition}</div>
-      ${taxNo ? `<div>الرقم الضريبي: ${taxNo}</div>` : ""}
-      ${crNo ? `<div>السجل التجاري: ${crNo}</div>` : ""}
-    </div>
-  </div>
-
-  <table>
-    <thead>
-      <tr><th class="c">#</th><th>الوصف / البند</th><th class="c">الكمية</th><th class="c">السعر (ر.س)</th><th class="c">الإجمالي (ر.س)</th></tr>
-    </thead>
-    <tbody>${rowsHtml}</tbody>
-  </table>
-
-  <table class="totals">
-    <tr><td>المجموع قبل الضريبة:</td><td class="c">${fmt(subtotal)} ر.س</td></tr>
-    <tr><td>ضريبة القيمة المضافة (15%):</td><td class="c">${fmt(vat)} ر.س</td></tr>
-    <tr class="g"><td>الإجمالي شامل الضريبة:</td><td class="c">${fmt(grand)} ر.س</td></tr>
-  </table>
-
-  <div class="terms">
-    <b>الشروط والأحكام:</b><br/>
-    • هذا العرض صالح لمدة 15 يوماً من تاريخ إصداره.<br/>
-    • تُدفع 50% دفعة مقدمة عند اعتماد العرض والباقي قبل التسليم.<br/>
-    • تشمل الأسعار التصميم والتنفيذ والتركيب داخل أرض المعرض.<br/>
-    • يُعتمد العرض رسمياً بتوقيع العميل أدناه ويصبح ملزماً للطرفين.
-  </div>
-
-  <div class="sign">
-    <div><b>اعتماد وتوقيع العميل</b><div class="line">الاسم / التوقيع / التاريخ</div></div>
-    <div><b>عن إكسبو تايم (${rep})</b><div class="line">التوقيع والختم</div></div>
-  </div>
-
-  <div class="footer">إكسبو تايم ExpoTime · عرض سعر رسمي مُولّد إلكترونياً</div>
-
-  <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 350); };</script>
-</body>
-</html>`;
-
-    const w = window.open("", "_blank");
-    if (!w) {
-      toast.error("يرجى السماح بالنوافذ المنبثقة لطباعة/حفظ العرض كـ PDF.");
-      return;
+  // تنزيل عرض السعر الرسمي كملف PDF (قابل للطباعة والتوقيع)
+  const handleDownloadQuotePdf = async (q: any) => {
+    setGeneratingPdf(true);
+    try {
+      await downloadQuotePdf(q, company, salesperson);
+      toast.success("تم تجهيز ملف PDF الرسمي وتنزيله بنجاح 📄");
+    } catch (e: any) {
+      console.error("فشل توليد PDF:", e);
+      toast.error("تعذّر توليد ملف الـ PDF، يرجى المحاولة مجدداً.");
+    } finally {
+      setGeneratingPdf(false);
     }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
   };
 
   const handleUpdateQuotationStatus = async (qId: string, nextStatus: string) => {
@@ -1751,11 +1664,12 @@ ${itemsStr}
               <div className="flex flex-wrap items-center gap-2 px-5 py-4 border-t border-slate-200 sticky bottom-0 bg-white rounded-b-2xl">
                 <button
                   type="button"
-                  onClick={() => printOfficialQuote(q)}
-                  className="flex-1 min-w-[140px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold px-3 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  onClick={() => handleDownloadQuotePdf(q)}
+                  disabled={generatingPdf}
+                  className="flex-1 min-w-[140px] bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold px-3 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
-                  <FileText className="w-4 h-4" />
-                  تنزيل / طباعة PDF رسمي 📄
+                  {generatingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                  {generatingPdf ? "جارٍ التوليد..." : "تنزيل PDF رسمي 📄"}
                 </button>
                 <button
                   type="button"

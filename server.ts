@@ -12,6 +12,7 @@ import {
   scheduleSave,
   TABS,
 } from "./sheetsStore";
+import { sendEmail, getMailProvider } from "./mailer";
 
 // تحميل متغيرات البيئة من .env أو بيئة التشغيل
 dotenv.config();
@@ -663,6 +664,7 @@ app.get("/api/config", (req, res) => {
       enabled: sheets.enabled,
       sheetId: sheets.sheetId,
     },
+    email: { provider: getMailProvider() },
     message: sheets.enabled
       ? "متصل بقاعدة بيانات Google Sheets الحية بنجاح."
       : "يعمل حالياً بالتخزين المحلي. لتفعيل Google Sheets يرجى ضبط بيانات حساب الخدمة في متغيرات البيئة."
@@ -787,77 +789,110 @@ app.patch("/api/quotations/:id", (req, res) => {
   res.json({ success: true, message: "تم تحديث تفاصيل عرض السعر وحفظها بنجاح 🟢", quotation: mockQuotations[qIdx] });
 });
 
-// و2) إرسال بريد إلكتروني فوري للعميل بعرض السعر المعتمد
-app.post("/api/quotations/send-client-email", (req, res) => {
-  const { quotationId, clientName, clientEmail, items, amount, exhibition, repName } = req.body;
+// و2) إرسال بريد إلكتروني فوري للعميل بعرض السعر (مع إرفاق ملف PDF رسمي)
+app.post("/api/quotations/send-client-email", async (req, res) => {
+  const { quotationId, clientName, clientEmail, items, amount, exhibition, repName, pdfBase64, pdfFileName } = req.body;
 
   if (!clientEmail) {
     return res.status(400).json({ error: "بريد العميل الإلكتروني مطلوب لإرسال العرض." });
   }
 
-  console.log(`[EMAIL SIMULATOR] Sending quotation email to client: ${clientEmail}...`);
-  console.log(`[EMAIL DETAILS]
-    المستلم: ${clientEmail}
-    العنوان: عرض سعر رسمي وموثق من إكسبو تايم - رقم ${quotationId}
-    المحتوى:
-    مرحباً أ. ${clientName}،
-    يسعدنا في إكسبو تايم لتنظيم المعارض والمؤتمرات (ExpoTime) تقديم عرض السعر الرسمي الخاص بكم لـ ${exhibition || "المعرض المعني"}.
-    
-    تفاصيل عرض السعر رقم: ${quotationId}
-    الإجمالي قبل الضريبة: ${amount} ر.س
-    ضريبة القيمة المضافة (15%): ${(Number(amount) * 0.15).toFixed(2)} ر.س
-    الإجمالي النهائي: ${(Number(amount) * 1.15).toFixed(2)} ر.س
-    
-    البنود المشمولة بالعرض:
-    ${(items || []).map((it: any, i: number) => `- البند ${i+1}: ${it.description} (الكمية: ${it.qty} | سعر الوحدة: ${it.price} ر.س | الإجمالي: ${it.total} ر.س)`).join("\n")}
-    
-    مسؤول المبيعات المختص بمتابعة طلبكم: ${repName || "إكسبو تايم مبيعات"}.
-    نشكركم لثقتكم بنا، ونتطلع للتعاون المثمر معكم لتقديم تجربة مشاركة استثنائية بالمعرض.
-    
-    تحياتنا،
-    إدارة المبيعات والعلاقات العامة | إكسبو تايم للمعارض والمؤتمرات
-  `);
+  const subtotal = Number(amount) || 0;
+  const vat = subtotal * 0.15;
+  const grand = subtotal + vat;
+  const itemsHtml = (items || [])
+    .map(
+      (it: any, i: number) =>
+        `<tr><td style="border:1px solid #e2e8f0;padding:6px">${i + 1}</td><td style="border:1px solid #e2e8f0;padding:6px">${it.description}</td><td style="border:1px solid #e2e8f0;padding:6px;text-align:center">${it.qty}</td><td style="border:1px solid #e2e8f0;padding:6px;text-align:center">${it.price}</td></tr>`
+    )
+    .join("");
+
+  const html = `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;color:#1e293b;line-height:1.8">
+    <h2 style="color:#2563eb">عرض سعر رسمي من إكسبو تايم</h2>
+    <p>مرحباً أ. ${clientName || "العميل الكريم"}،</p>
+    <p>يسعدنا في <b>إكسبو تايم</b> لتصميم وتنفيذ أجنحة المعارض تزويدكم بعرض السعر الرسمي لـ: <b>${exhibition || "مشاركتكم"}</b>.</p>
+    <p>رقم العرض: <b>${quotationId}</b></p>
+    <table style="border-collapse:collapse;width:100%;font-size:13px">
+      <tr style="background:#2563eb;color:#fff"><th style="padding:6px">#</th><th style="padding:6px">البند</th><th style="padding:6px">الكمية</th><th style="padding:6px">السعر</th></tr>
+      ${itemsHtml}
+    </table>
+    <p>المجموع قبل الضريبة: ${subtotal.toFixed(2)} ر.س<br/>
+    ض.ق.م (15%): ${vat.toFixed(2)} ر.س<br/>
+    <b>الإجمالي شامل الضريبة: ${grand.toFixed(2)} ر.س</b></p>
+    <p>تجدون مرفقاً عرض السعر الرسمي بصيغة PDF جاهزاً للاعتماد والتوقيع.</p>
+    <p>مسؤول المبيعات: ${repName || "إكسبو تايم"}<br/>تحياتنا،<br/>إكسبو تايم للمعارض والمؤتمرات 🌟</p>
+  </div>`;
+
+  const attachments = pdfBase64
+    ? [{ filename: pdfFileName || `عرض-سعر-${quotationId}.pdf`, contentBase64: pdfBase64, contentType: "application/pdf" }]
+    : [];
+
+  const result = await sendEmail({
+    to: clientEmail,
+    subject: `عرض سعر رسمي من إكسبو تايم - رقم ${quotationId}`,
+    html,
+    attachments,
+  });
+
+  if (!result.ok) {
+    return res.status(502).json({
+      error: "تعذّر إرسال البريد عبر مزوّد البريد. تحقق من إعدادات البريد.",
+      details: result.error,
+    });
+  }
 
   res.json({
     success: true,
-    message: `تم إرسال عرض السعر رقم (${quotationId}) رسمياً لبريد العميل (${clientEmail}) بنجاح! ✉️`
+    delivered: !result.simulated,
+    simulated: !!result.simulated,
+    hasAttachment: attachments.length > 0,
+    message: result.simulated
+      ? `تم تجهيز عرض السعر (${quotationId}) — وضع المحاكاة فعّال (لم يُضبط مزوّد بريد بعد).`
+      : `تم إرسال عرض السعر رقم (${quotationId}) مع ملف PDF رسمي لبريد العميل (${clientEmail}) بنجاح! ✉️`,
   });
 });
 
 // و) إرسال بريد إلكتروني فوري للمحاسب عن التعميد
-app.post("/api/send-accounting-email", (req, res) => {
+app.post("/api/send-accounting-email", async (req, res) => {
   const { quotationId, clientName, clientPhone, taxNumber, nationalAddress, crNumber, amount, details, exhibition, repName } = req.body;
 
   const targetEmail = appSettings.accountantEmail || "jamal@expo-time.co";
 
-  console.log(`[EMAIL SIMULATOR] Sending email to ${targetEmail}...`);
-  console.log(`[EMAIL DETAILS]
-    العنوان: تعميد رسمي ومستندات ضريبية للعميل: ${clientName}
-    المحتوى:
-    مرحباً أ. جمال،
-    نفيدكم علماً بأنه قد تم تعميد عرض السعر رقم: ${quotationId} بقيمة: ${amount} ريال سعودي.
-    الخاص بالمعرض: ${exhibition || "غير محدد"}.
-    مسؤول المبيعات: ${repName || "غير محدد"}.
-    
-    تفاصيل العميل القانونية والضريبية المعتمدة:
-    - الرقم الضريبي: ${taxNumber || "غير متوفر"}
-    - السجل التجاري: ${crNumber || "غير متوفر"}
-    - العنوان الوطني: ${nationalAddress || "غير متوفر"}
-    - جوال العميل: ${clientPhone || "غير متوفر"}
-    
-    الرجاء اتخاذ الإجراءات المحاسبية وإصدار الفاتورة الضريبية وإرسالها للعميل ومتابعة الدفعة.
-    شكراً لكم،
-    نظام بورتال مبيعات ExpoTime CRM المطور.
-  `);
+  const html = `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;color:#1e293b;line-height:1.8">
+    <h2 style="color:#2563eb">تعميد رسمي ومستندات ضريبية</h2>
+    <p>مرحباً أ. جمال،</p>
+    <p>تم تعميد عرض السعر رقم <b>${quotationId || "—"}</b> بقيمة <b>${amount || "—"}</b> ر.س للمعرض: ${exhibition || "غير محدد"}.</p>
+    <p><b>بيانات العميل القانونية:</b></p>
+    <ul>
+      <li>اسم العميل: ${clientName || "—"}</li>
+      <li>الرقم الضريبي: ${taxNumber || "غير متوفر"}</li>
+      <li>السجل التجاري: ${crNumber || "غير متوفر"}</li>
+      <li>العنوان الوطني: ${nationalAddress || "غير متوفر"}</li>
+      <li>جوال العميل: ${clientPhone || "غير متوفر"}</li>
+      <li>مسؤول المبيعات: ${repName || "غير محدد"}</li>
+    </ul>
+    <p>الرجاء اتخاذ الإجراءات المحاسبية وإصدار الفاتورة الضريبية ومتابعة الدفعة.</p>
+    <p>نظام ExpoTime CRM</p>
+  </div>`;
+
+  const result = await sendEmail({
+    to: targetEmail,
+    subject: `[تعميد رسمي] ${clientName || ""} - عرض السعر ${quotationId || ""}`,
+    html,
+  });
+
+  if (!result.ok) {
+    return res.status(502).json({ error: "تعذّر إرسال بريد التعميد للمحاسب.", details: result.error });
+  }
 
   res.json({
     success: true,
-    message: `تم إرسال بريد التعميد القانوني الفوري بنجاح إلى المحاسب أ. جمال عبر البريد المعتمد (${targetEmail}) 🟢`,
-    emailLog: {
-      recipient: targetEmail,
-      subject: `[تعميد رسمي] ${clientName} - عرض السعر ${quotationId}`,
-      sentAt: new Date().toISOString()
-    }
+    delivered: !result.simulated,
+    simulated: !!result.simulated,
+    message: result.simulated
+      ? `تم تجهيز بريد التعميد للمحاسب — وضع المحاكاة فعّال (لم يُضبط مزوّد بريد بعد).`
+      : `تم إرسال بريد التعميد القانوني للمحاسب (${targetEmail}) بنجاح 🟢`,
+    emailLog: { recipient: targetEmail, sentAt: new Date().toISOString() },
   });
 });
 
