@@ -29,8 +29,7 @@ export const initAuth = (
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
-        // المستخدم مسجّل دخوله في Firebase لكن رمز وصول Google غير متوفر
-        // (انتهى أو لم يُلتقط بعد) — نطلب إعادة تسجيل الدخول لاستعادته.
+        cachedAccessToken = null;
         if (onAuthFailure) onAuthFailure();
       }
     } else {

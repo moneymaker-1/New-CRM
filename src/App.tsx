@@ -47,11 +47,62 @@ import * as XLSX from "xlsx";
 import { Company, Employee, ConfigResponse, ALLOWED_STATUSES, ALLOWED_PRIORITIES } from "./types";
 import CompanyDetails from "./components/CompanyDetails";
 import { initAuth, googleSignIn, logoutGoogle } from "./lib/firebaseAuth";
-import { setAuthToken, clearAuthToken, setUnauthorizedHandler } from "./lib/apiClient";
-import { toast } from "./lib/toast";
 
-import { getSafeString, formatPhone, formatEmail, cleanPhoneForWhatsApp } from "./lib/helpers";
-export { getSafeString, formatPhone, formatEmail, cleanPhoneForWhatsApp };
+export function getSafeString(val: any): string {
+  if (val === null || val === undefined) return "";
+  if (typeof val === "string") return val;
+  if (Array.isArray(val)) {
+    if (val.length === 0) return "";
+    return getSafeString(val[0]);
+  }
+  if (typeof val === "object") {
+    if (val.value !== undefined) return getSafeString(val.value);
+    if (val.name !== undefined) return getSafeString(val.name);
+    if (val.id !== undefined) return getSafeString(val.id);
+    return "";
+  }
+  return String(val);
+}
+
+export function formatPhone(ph: string): string {
+  if (!ph) return "";
+  let val = ph.trim();
+  const arabicDigits = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"];
+  for (let i = 0; i < 10; i++) {
+    val = val.replace(new RegExp(arabicDigits[i], "g"), String(i));
+  }
+  const hasPlus = val.startsWith("+");
+  val = val.replace(/[^\d]/g, "");
+  if (hasPlus) {
+    val = "+" + val;
+  }
+  if (/^5\d{8}$/.test(val)) {
+    val = "0" + val;
+  }
+  if (val.startsWith("9665") && val.length === 12) {
+    val = "05" + val.slice(4);
+  } else if (val.startsWith("+9665") && val.length === 13) {
+    val = "05" + val.slice(5);
+  }
+  return val;
+}
+
+export function formatEmail(em: string): string {
+  if (!em) return "";
+  return em.trim().toLowerCase();
+}
+
+export function cleanPhoneForWhatsApp(ph: string): string {
+  if (!ph) return "";
+  let clean = ph.trim();
+  clean = clean.replace(/[\s\-\(\)\+]+/g, "");
+  if (clean.startsWith("05") && clean.length === 10) {
+    clean = "966" + clean.substring(1);
+  } else if (clean.startsWith("5") && clean.length === 9) {
+    clean = "966" + clean;
+  }
+  return clean;
+}
 
 export default function App() {
   const [loginTab, setLoginTab] = useState<"sales" | "admin">("sales");
@@ -461,14 +512,14 @@ export default function App() {
         body: JSON.stringify({ status })
       });
       if (res.ok) {
-        toast.success("تم تأكيد اتخاذ الإجراء وإضافة العميل للنظام المحاسبي بنجاح! 🚀✅");
+        alert("تم تأكيد اتخاذ الإجراء وإضافة العميل للنظام المحاسبي بنجاح! 🚀✅");
         fetchAccountingRequests();
       } else {
-        toast.error("فشل تحديث حالة الطلب المحاسبي.");
+        alert("فشل تحديث حالة الطلب المحاسبي.");
       }
     } catch (err) {
       console.error("خطأ تحديث طلب المحاسب:", err);
-      toast.error("حدث خطأ أثناء الاتصال بالخادم.");
+      alert("حدث خطأ أثناء الاتصال بالخادم.");
     }
   };
 
@@ -536,7 +587,6 @@ export default function App() {
   }
 
   const handleLogout = () => {
-    clearAuthToken();
     setIsLoggedIn(false);
     setIsManagerMode(false);
     setSelectedRep("");
@@ -545,20 +595,10 @@ export default function App() {
     setLoginPassword("");
   };
 
-  // إنهاء الجلسة تلقائياً عند انتهاء صلاحية التوكن (401)
-  useEffect(() => {
-    setUnauthorizedHandler(() => {
-      setIsLoggedIn(false);
-      setIsManagerMode(false);
-      setSelectedRep("");
-      toast.error("انتهت الجلسة، يرجى تسجيل الدخول مجدداً.");
-    });
-  }, []);
-
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCompanyName.trim()) {
-      toast.error("الرجاء إدخال اسم الشركة.");
+      alert("الرجاء إدخال اسم الشركة.");
       return;
     }
     setIsSubmittingManual(true);
@@ -584,7 +624,7 @@ export default function App() {
       });
       const result = await response.json();
       if (response.ok) {
-        toast.success("تم إضافة الشركة بنجاح.");
+        alert("تم إضافة الشركة بنجاح.");
         setNewCompanyName("");
         setNewCompanyCode("");
         setNewCompanyActivity("");
@@ -598,11 +638,11 @@ export default function App() {
           fetchCompanies(selectedRep);
         }
       } else {
-        toast.error(result.message || result.error || "فشل إضافة الشركة.");
+        alert(result.message || result.error || "فشل إضافة الشركة.");
       }
     } catch (err) {
       console.error("خطأ أثناء إضافة الشركة يدوياً", err);
-      toast.error("حدث خطأ أثناء إضافة الشركة.");
+      alert("حدث خطأ أثناء إضافة الشركة.");
     } finally {
       setIsSubmittingManual(false);
     }
@@ -610,7 +650,7 @@ export default function App() {
 
   const handleAiCleanSubmit = async () => {
     if (!aiInputText.trim()) {
-      toast.error("الرجاء إدخال أو لصق البيانات العشوائية أولاً.");
+      alert("الرجاء إدخال أو لصق البيانات العشوائية أولاً.");
       return;
     }
     setIsCleaningAi(true);
@@ -626,7 +666,7 @@ export default function App() {
       const result = await response.json();
       if (response.ok && result.success) {
         setAiCleanResult(result.data || []);
-        toast.success(`نجح الذكاء الاصطناعي ✨ في تنظيم ${result.data?.length || 0} من الشركات وحفظها بنجاح!`);
+        alert(`نجح الذكاء الاصطناعي ✨ في تنظيم ${result.data?.length || 0} من الشركات وحفظها بنجاح!`);
         
         if (isManagerMode) {
           fetchAllManagerData();
@@ -634,11 +674,11 @@ export default function App() {
           fetchCompanies(selectedRep);
         }
       } else {
-        toast.error(result.error || "فشل الذكاء الاصطناعي في معالجة البيانات.");
+        alert(result.error || "فشل الذكاء الاصطناعي في معالجة البيانات.");
       }
     } catch (err) {
       console.error("خطأ معالجة الذكاء الاصطناعي للبيانات العشوائية", err);
-      toast.error("حدث خطأ أثناء الاتصال بخادم الذكاء الاصطناعي.");
+      alert("حدث خطأ أثناء الاتصال بخادم الذكاء الاصطناعي.");
     } finally {
       setIsCleaningAi(false);
     }
@@ -692,7 +732,7 @@ export default function App() {
   };
 
   const handleDeleteEmployee = async (id: string | number, name: string) => {
-    if (!(await toast.confirm(`هل أنت متأكد من رغبتك في حذف وإلغاء تفويض المندوب: ${name}؟`))) {
+    if (!confirm(`هل أنت متأكد من رغبتك في حذف وإلغاء تفويض المندوب: ${name}؟`)) {
       return;
     }
     setEmpActionLoading(true);
@@ -736,7 +776,7 @@ export default function App() {
         }
       } else {
         const result = await response.json();
-        toast.error(result.error || "فشل تحديث بيانات الشركة.");
+        alert(result.error || "فشل تحديث بيانات الشركة.");
       }
     } catch (err) {
       console.error("خطأ أثناء تحديث بيانات الشركة", err);
@@ -744,7 +784,7 @@ export default function App() {
   };
 
   const handleDeleteCompany = async (companyId: string | number, companyName: string) => {
-    if (!(await toast.confirm(`هل أنت متأكد من رغبتك في حذف العميل: ${companyName}؟`))) {
+    if (!confirm(`هل أنت متأكد من رغبتك في حذف العميل: ${companyName}؟`)) {
       return;
     }
     try {
@@ -752,7 +792,7 @@ export default function App() {
         method: "DELETE"
       });
       if (response.ok) {
-        toast.success("تم حذف العميل بنجاح.");
+        alert("تم حذف العميل بنجاح.");
         if (isManagerMode) {
           fetchAllManagerData();
         } else {
@@ -760,7 +800,7 @@ export default function App() {
         }
       } else {
         const result = await response.json();
-        toast.error(result.error || "فشل حذف العميل.");
+        alert(result.error || "فشل حذف العميل.");
       }
     } catch (err) {
       console.error("خطأ أثناء حذف الشركة", err);
@@ -770,7 +810,7 @@ export default function App() {
   const handleExportToExcel = () => {
     const targetList = isManagerMode ? managerCompanies : companies;
     if (targetList.length === 0) {
-      toast.error("لا توجد بيانات عملاء لتصديرها.");
+      alert("لا توجد بيانات عملاء لتصديرها.");
       return;
     }
     const worksheet = XLSX.utils.json_to_sheet(targetList);
@@ -785,19 +825,13 @@ export default function App() {
   };
 
   // تحميل إعدادات البيئة والموظفين وعروض الأسعار عند بدء التشغيل
-  // fetchConfig عام (لا يتطلب مصادقة) — يُنفّذ عند الإقلاع
   useEffect(() => {
     fetchConfig();
-  }, []);
-
-  // باقي البيانات تتطلب مصادقة — تُجلب بعد تسجيل الدخول فقط لتفادي أخطاء 401
-  useEffect(() => {
-    if (!isLoggedIn) return;
     fetchEmployees();
     fetchAppSettings();
     fetchQuotations();
     fetchAccountingRequests();
-  }, [isLoggedIn]);
+  }, []);
 
   // جلب الطلبات المحاسبية عند تفعيل التبويب المخصص لها
   useEffect(() => {
@@ -878,10 +912,9 @@ export default function App() {
       
       if (response.ok) {
         const data = await response.json();
-        if (data.token) setAuthToken(data.token);
         setGoogleUser(result.user);
         setGoogleAccessToken(result.accessToken);
-
+        
         if (data.role === "manager") {
           setIsLoggedIn(true);
           setIsManagerMode(true);
@@ -912,7 +945,7 @@ export default function App() {
   // إنشاء ورقة قوقل شيت جديدة في حساب المستخدم
   const handleCreateGoogleSheet = async () => {
     if (!googleAccessToken) {
-      toast.error("الرجاء تسجيل الدخول بـ Google أولاً.");
+      alert("الرجاء تسجيل الدخول بـ Google أولاً.");
       return;
     }
     setIsGoogleLoading(true);
@@ -947,7 +980,7 @@ export default function App() {
       await saveAppSettings({ googleSheetId: sheetId, googleSheetUrl: sheetUrl });
 
       setGoogleStatusMsg("تم إنشاء ورقة Google Sheet جديدة وربطها بنجاح! 🎉");
-      toast.success("تم إنشاء جدول البيانات الجديد بنجاح! يمكنك تصدير أو استيراد البيانات إليه الآن.");
+      alert("تم إنشاء جدول البيانات الجديد بنجاح! يمكنك تصدير أو استيراد البيانات إليه الآن.");
     } catch (err: any) {
       console.error(err);
       setGoogleErrorMsg("حدث خطأ أثناء إنشاء ورقة Google Sheets: " + err.message);
@@ -959,21 +992,21 @@ export default function App() {
   // مزامنة وتصدير جميع العملاء إلى قوقل شيت
   const handleExportToGoogleSheets = async () => {
     if (!googleAccessToken) {
-      toast.error("الرجاء تسجيل الدخول بـ Google أولاً.");
+      alert("الرجاء تسجيل الدخول بـ Google أولاً.");
       return;
     }
     if (!googleSheetId) {
-      toast.error("الرجاء ربط أو إنشاء ملف Google Sheet أولاً.");
+      alert("الرجاء ربط أو إنشاء ملف Google Sheet أولاً.");
       return;
     }
 
     const targetList = isManagerMode ? managerCompanies : companies;
     if (targetList.length === 0) {
-      toast.error("لا توجد بيانات عملاء حالية للتصدير.");
+      alert("لا توجد بيانات عملاء حالية للتصدير.");
       return;
     }
 
-    if (!(await toast.confirm(`هل أنت متأكد من رغبتك في تصدير ومزامنة ${targetList.length} عميل إلى جدول Google Sheet؟ سيقوم هذا باستبدال المحتوى بالكامل.`))) {
+    if (!confirm(`هل أنت متأكد من رغبتك في تصدير ومزامنة ${targetList.length} عميل إلى جدول Google Sheet؟ سيقوم هذا باستبدال المحتوى بالكامل.`)) {
       return;
     }
 
@@ -1051,7 +1084,7 @@ export default function App() {
       }
 
       setGoogleStatusMsg("تم تصدير وتحديث جميع البيانات في قوقل شيت بنجاح! 🟢");
-      toast.success(`تم بنجاح تصدير ومزامنة ${targetList.length} عميل لجدول Google Sheet الخاص بك.`);
+      alert(`تم بنجاح تصدير ومزامنة ${targetList.length} عميل لجدول Google Sheet الخاص بك.`);
     } catch (err: any) {
       console.error(err);
       setGoogleErrorMsg("فشل تصدير ومزامنة البيانات: " + err.message);
@@ -1063,11 +1096,11 @@ export default function App() {
   // استيراد ومزامنة العملاء من قوقل شيت
   const handleImportFromGoogleSheets = async () => {
     if (!googleAccessToken) {
-      toast.error("الرجاء تسجيل الدخول بـ Google أولاً.");
+      alert("الرجاء تسجيل الدخول بـ Google أولاً.");
       return;
     }
     if (!googleSheetId) {
-      toast.error("الرجاء ربط أو إنشاء ملف Google Sheet أولاً.");
+      alert("الرجاء ربط أو إنشاء ملف Google Sheet أولاً.");
       return;
     }
 
@@ -1202,7 +1235,7 @@ export default function App() {
       });
 
       setGoogleStatusMsg(`تم مزامنة واستيراد ${successCount} شركة جديدة بنجاح!`);
-      toast.success(`تم الاستيراد بنجاح! تم إضافة ${successCount} عميل جديد، وتخطي ${skippedCount} مكرر.`);
+      alert(`تم الاستيراد بنجاح! تم إضافة ${successCount} عميل جديد، وتخطي ${skippedCount} مكرر.`);
       
       // تحديث البيانات
       if (isManagerMode) {
@@ -1235,7 +1268,7 @@ export default function App() {
         const rawRows = XLSX.utils.sheet_to_json<any>(worksheet);
 
         if (rawRows.length === 0) {
-          toast.error("الملف فارغ أو غير صالح للاستيراد.");
+          alert("الملف فارغ أو غير صالح للاستيراد.");
           setLoading(false);
           return;
         }
@@ -1272,7 +1305,7 @@ export default function App() {
 
         const totalRecords = mappedRows.length;
         if (totalRecords === 0) {
-          toast.error("فشل العثور على أي حقول مطابقة (مثل 'اسم الشركة') داخل ملف الإكسل المرفوع. يرجى التأكد من احتواء الملف على اسم الشركة على الأقل.");
+          alert("فشل العثور على أي حقول مطابقة (مثل 'اسم الشركة') داخل ملف الإكسل المرفوع. يرجى التأكد من احتواء الملف على اسم الشركة على الأقل.");
           setLoading(false);
           setImportProgress(null);
           return;
@@ -1314,7 +1347,7 @@ export default function App() {
           });
         }
 
-        toast.success(`تمت عملية الاستيراد بنجاح! 🟢\nتم استيراد ${successCount} شركة جديدة.\nتم تخطي ${skippedCount} شركة مكررة.`);
+        alert(`تمت عملية الاستيراد بنجاح! 🟢\nتم استيراد ${successCount} شركة جديدة.\nتم تخطي ${skippedCount} شركة مكررة.`);
         
         if (isManagerMode) {
           fetchAllManagerData();
@@ -1323,7 +1356,7 @@ export default function App() {
         }
       } catch (err: any) {
         console.error("خطأ أثناء قراءة ملف الإكسل:", err);
-        toast.error("حدث خطأ أثناء معالجة ملف الإكسل. يرجى التأكد من صحة الملف وصيغته.");
+        alert("حدث خطأ أثناء معالجة ملف الإكسل. يرجى التأكد من صحة الملف وصيغته.");
       } finally {
         setLoading(false);
         setImportProgress(null);
@@ -1459,7 +1492,6 @@ export default function App() {
 
       if (response.ok) {
         const data = await response.json();
-        if (data.token) setAuthToken(data.token);
         setIsLoggedIn(true);
         if (data.role === "manager") {
           setIsManagerMode(true);
@@ -2709,7 +2741,7 @@ export default function App() {
                           <button
                             onClick={async () => {
                               if (!googleAccessToken) {
-                                toast.error("الرجاء ربط حساب Google أولاً عبر زر تسجيل الدخول أعلاه.");
+                                alert("الرجاء ربط حساب Google أولاً عبر زر تسجيل الدخول أعلاه.");
                                 return;
                               }
                               await handleExportToGoogleSheets();
@@ -2891,7 +2923,7 @@ export default function App() {
                               setIsSavingSettings(false);
                               setSettingsUploadStatus(null);
                               setSettingsUploadProgress(0);
-                              toast.error("حدث خطأ أثناء الاتصال بالسيرفر لحفظ الإعدادات.");
+                              alert("حدث خطأ أثناء الاتصال بالسيرفر لحفظ الإعدادات.");
                             }
                           }}
                           className={`bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold px-6 py-3 rounded-xl shadow-lg shadow-blue-900/40 transition-all flex items-center gap-2 cursor-pointer font-sans ${isSavingSettings ? "opacity-50 cursor-not-allowed" : ""}`}
@@ -4063,19 +4095,8 @@ export default function App() {
                     if (matchedComp) {
                       setSelectedCompany(matchedComp);
                     } else {
-                      // إذا لم يتم جلب المستند النشط في الكاش، نبني سجل شركة مكتمل من البيانات المتوفرة
-                      const ec = duplicateWarning.existingCompany;
-                      setSelectedCompany({
-                        id: ec["كود الشركة"] || ec["اسم الشركة"],
-                        "كود الشركة": ec["كود الشركة"],
-                        "اسم الشركة": ec["اسم الشركة"],
-                        "مسؤول المبيعات": ec["مسؤول المبيعات"] || "",
-                        "الجوال الرئيسي": ec["الجوال الرئيسي"] || "",
-                        "البريد الإلكتروني": "",
-                        "الحالة": "",
-                        "الأولوية": "",
-                        "آخر تواصل": "",
-                      });
+                      // إذا لم يتم جلب المستند النشط في الكاش، نقوم ببناء مصفوفة مدمجة لفتحها
+                      setSelectedCompany(duplicateWarning.existingCompany);
                     }
                   }}
                   className="flex-1 py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs transition-colors text-center cursor-pointer shadow-xs"

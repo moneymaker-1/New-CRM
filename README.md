@@ -1,79 +1,20 @@
-# ExpoTime CRM
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-نظام إدارة علاقات العملاء (CRM) لمندوبي مبيعات شركة **ExpoTime** المتخصصة في
-تصميم وبناء أجنحة المعارض. واجهة عربية (RTL) مبنية على React + TypeScript،
-وخادم Express، وتكامل مع Google Gemini للذكاء الاصطناعي، وربط البيانات
-بـ **Google Sheets** كقاعدة بيانات رئيسية (مع رجوع آمن للتخزين المحلي).
+# Run and deploy your AI Studio app
 
-## المتطلبات
-- Node.js 18 أو أحدث
+This contains everything you need to run your app locally.
 
-## التشغيل محلياً
+View your app in AI Studio: https://ai.studio/apps/fdc4badc-c430-4922-8405-1cf99702f765
 
-1. تثبيت الاعتماديات:
-   ```bash
-   npm install
-   ```
-2. إنشاء ملف البيئة:
-   ```bash
-   cp .env.example .env
-   ```
-   ثم املأ القيم المطلوبة (انظر الأقسام أدناه).
-3. التشغيل في وضع التطوير:
-   ```bash
-   npm run dev
-   ```
-4. البناء للإنتاج ثم التشغيل:
-   ```bash
-   npm run build
-   npm start
-   ```
+## Run Locally
 
-## ربط البيانات بـ Google Sheets (Service Account)
+**Prerequisites:**  Node.js
 
-النظام يقرأ ويكتب البيانات مباشرة في ملف Google Sheet واحد، موزّعة على
-تبويبات: `Companies`, `Employees`, `Quotations`, `Followups`, `Settings`.
-عند عدم ضبط بيانات الاعتماد، يعمل النظام تلقائياً بالتخزين المحلي (ملفات JSON).
 
-### خطوات الإعداد
-1. أنشئ مشروعاً في [Google Cloud Console](https://console.cloud.google.com/) وفعّل **Google Sheets API**.
-2. أنشئ **Service Account** وحمّل ملف المفتاح (JSON).
-3. شارك ملف Google Sheet مع البريد الخاص بحساب الخدمة
-   (`xxxx@xxxx.iam.gserviceaccount.com`) بصلاحية **محرّر (Editor)**.
-4. اضبط متغيرات البيئة في `.env`:
-   ```env
-   GOOGLE_SHEET_ID="1051_4gL-dAPark13F4c7fH3WIIQd-N0fZxonlbR9CTk"
-   # إمّا لصق محتوى المفتاح مباشرة:
-   GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account", ...}'
-   # أو تحديد مسار الملف:
-   GOOGLE_SERVICE_ACCOUNT_FILE="./service-account.json"
-   ```
-5. أعد تشغيل الخادم — ستظهر رسالة `🟢 تم الاتصال بـ Google Sheets بنجاح`.
-
-> ملاحظة: تتم مزامنة الكتابة إلى الشيت بشكل مؤجّل (debounced) لتفادي إرهاق
-> واجهة Google API عند تتابع التعديلات. التبويبات تُنشأ تلقائياً إن لم تكن موجودة.
-
-## الأمان والصلاحيات (RBAC)
-- **مصادقة بالتوكن**: عند تسجيل الدخول يُصدر الخادم توكناً موقّعاً (HMAC) يُحقن
-  تلقائياً في كل طلبات الـ API، وتنتهي الجلسة تلقائياً عند انتهاء صلاحيته.
-- **بوابة مصادقة مركزية** تحمي كل مسارات `/api` عدا (`login`, `login/google`, `config`).
-- **صلاحيات المدير فقط** على: إنشاء/تعديل/حذف الموظفين، حفظ الإعدادات، حذف الشركات.
-- كلمات مرور المندوبين تُخزَّن **مشفّرة** (scrypt) مع ترقية تلقائية لأي كلمات
-  قديمة مخزّنة كنص صريح عند أول تسجيل دخول.
-- كلمة مرور المدير تُقرأ من `MANAGER_PASSWORD` فقط (لا توجد كلمة افتراضية).
-- ضع سراً ثابتاً في `AUTH_SECRET` لإبقاء الجلسات صالحة بعد إعادة التشغيل.
-- ترويسات أمان أساسية + تحديد معدّل للطلبات على مسارات الدخول والذكاء الاصطناعي.
-- الأسرار وقواعد البيانات المحلية مستثناة من Git عبر `.gitignore`.
-
-## تسجيل الدخول
-- **باليوزر/الباسورد**: المدير عبر `MANAGER_USERNAME`/`MANAGER_PASSWORD`؛ المندوبون
-  عبر بيانات الدخول المحفوظة في قائمة الموظفين.
-- **عبر Google**: يُطابَق بريد Google مع `MANAGER_EMAIL` أو بريد المندوب في القائمة.
-
-## أوامر مفيدة
-| الأمر | الوظيفة |
-|------|---------|
-| `npm run dev` | تشغيل بيئة التطوير |
-| `npm run build` | فحص الأنواع + بناء الواجهة والخادم |
-| `npm start` | تشغيل النسخة المبنية |
-| `npm run lint` | فحص أنواع TypeScript فقط |
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

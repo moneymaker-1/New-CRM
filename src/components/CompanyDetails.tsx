@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { toast } from "../lib/toast";
 import { 
   X, 
   Calendar, 
@@ -255,7 +254,7 @@ export default function CompanyDetails({
 
     const cleanStatus = input.trim();
     if (statusesList.includes(cleanStatus)) {
-      toast.error("هذه الحالة موجودة بالفعل في القائمة.");
+      alert("هذه الحالة موجودة بالفعل في القائمة.");
       setStatus(cleanStatus);
       return;
     }
@@ -274,7 +273,7 @@ export default function CompanyDetails({
 
     setStatus(cleanStatus);
     handleStatusChange(cleanStatus);
-    toast.success(`تمت إضافة وتثبيت الحالة الجديدة [ ${cleanStatus} ] بنجاح! 🎉`);
+    alert(`تمت إضافة وتثبيت الحالة الجديدة [ ${cleanStatus} ] بنجاح! 🎉`);
   };
 
   // دوال إدارة بنود عرض السعر الديناميكي
@@ -287,7 +286,7 @@ export default function CompanyDetails({
 
   const removeQuotationItemLine = (id: number) => {
     if (quotationItems.length === 1) {
-      toast.error("يجب وجود بند واحد على الأقل في عرض السعر.");
+      alert("يجب وجود بند واحد على الأقل في عرض السعر.");
       return;
     }
     setQuotationItems(quotationItems.filter(item => item.id !== id));
@@ -319,7 +318,7 @@ export default function CompanyDetails({
     // التحقق من صحة بنود العرض
     const invalidItem = quotationItems.find(it => !it.description.trim() || Number(it.price) < 0);
     if (invalidItem) {
-      toast.error("يرجى إدخال وصف صحيح وسعر أكبر من أو يساوي صفر لكافة البنود.");
+      alert("يرجى إدخال وصف صحيح وسعر أكبر من أو يساوي صفر لكافة البنود.");
       return;
     }
 
@@ -349,7 +348,7 @@ export default function CompanyDetails({
         setQuotationItems([{ id: 1, description: "", qty: 1, price: 0, total: 0 }]);
         setShowQuotationForm(false);
         await fetchCompanyQuotations();
-        toast.success("تم إنشاء وتسجيل عرض السعر الجديد للعميل بنجاح! 🟢");
+        alert("تم إنشاء وتسجيل عرض السعر الجديد للعميل بنجاح! 🟢");
       }
     } catch (err) {
       console.error("خطأ أثناء تسجيل عرض السعر:", err);
@@ -388,13 +387,13 @@ export default function CompanyDetails({
       });
 
       if (response.ok) {
-        toast.success(`تم إرسال عرض السعر رقم (${q.id}) للعميل عبر البريد الإلكتروني بنجاح! ✉️`);
+        alert(`تم إرسال عرض السعر رقم (${q.id}) للعميل عبر البريد الإلكتروني بنجاح! ✉️`);
       } else {
-        toast.error("فشل إرسال البريد الإلكتروني للعميل، يرجى المحاولة لاحقاً.");
+        alert("فشل إرسال البريد الإلكتروني للعميل، يرجى المحاولة لاحقاً.");
       }
     } catch (err) {
       console.error("خطأ إرسال بريد العميل:", err);
-      toast.error("حدث خطأ غير متوقع أثناء إرسال البريد.");
+      alert("حدث خطأ غير متوقع أثناء إرسال البريد.");
     } finally {
       setIsSendingClientEmail(null);
     }
@@ -403,7 +402,7 @@ export default function CompanyDetails({
   const handleSendClientQuotationWhatsApp = (q: any) => {
     const rawPhone = getSafeString(company["الجوال الرئيسي"] || company["جوال"]);
     if (!rawPhone) {
-      toast.error("رقم جوال العميل غير متوفر في السجلات.");
+      alert("رقم جوال العميل غير متوفر في السجلات.");
       return;
     }
 
@@ -464,7 +463,7 @@ ${itemsStr}
         if (nextStatus === "تم التعميد") {
           setStatus("تم التعميد");
         }
-        toast.success("تم تحديث حالة عرض السعر بنجاح! 🟢");
+        alert("تم تحديث حالة عرض السعر بنجاح! 🟢");
       }
     } catch (err) {
       console.error("فشل تحديث عرض السعر:", err);
@@ -532,13 +531,13 @@ ${itemsStr}
         setEmailSuccessId(q.id);
         
         await new Promise(resolve => setTimeout(resolve, 1500));
-        toast.success(`تم رفع المستندات الرسمية المرفقة (العنوان الوطني، السجل التجاري، الرقم الضريبي) وإرسال بند "إضافة العميل" إلى المحاسب بنجاح! يظهر كبند معلق ومستند رسمي مطلوب اتخاذ إجراء عليه فوراً في المنظومة 📊🟢`);
+        alert(`تم رفع المستندات الرسمية المرفقة (العنوان الوطني، السجل التجاري، الرقم الضريبي) وإرسال بند "إضافة العميل" إلى المحاسب بنجاح! يظهر كبند معلق ومستند رسمي مطلوب اتخاذ إجراء عليه فوراً في المنظومة 📊🟢`);
       } else {
-        toast.error("فشل رفع وإرسال طلب التعميد للمحاسب.");
+        alert("فشل رفع وإرسال طلب التعميد للمحاسب.");
       }
     } catch (err) {
       console.error("فشل رفع وإرسال طلب التعميد للمحاسب:", err);
-      toast.error("حدث خطأ أثناء الاتصال بالخادم.");
+      alert("حدث خطأ أثناء الاتصال بالخادم.");
     } finally {
       setIsSendingEmail(null);
       setAccountingUploadStatus(null);
@@ -1417,7 +1416,7 @@ ${itemsStr}
                               type="button"
                               onClick={() => {
                                 if (!tempTaxNumber || !tempCrNumber || !tempNationalAddress) {
-                                  toast.error("الرجاء إدخال كافة المستندات (الرقم الضريبي، السجل التجاري، العنوان الوطني) قبل التعميد.");
+                                  alert("الرجاء إدخال كافة المستندات (الرقم الضريبي، السجل التجاري، العنوان الوطني) قبل التعميد.");
                                   return;
                                 }
                                 handleUpdateQuotationStatus(q.id, "تم التعميد");
