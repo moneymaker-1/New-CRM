@@ -87,13 +87,16 @@ export async function sendEmail(input: MailInput): Promise<MailResult> {
 
     // SMTP عبر nodemailer
     const port = Number(process.env.SMTP_PORT) || 587;
+    const secure = String(process.env.SMTP_SECURE) === "true" || port === 465;
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port,
-      secure: String(process.env.SMTP_SECURE) === "true" || port === 465,
+      secure, // 465 = SSL مباشر، 587 = STARTTLS
+      requireTLS: !secure, // فرض STARTTLS على منفذ 587 (مطلوب لـ Office365)
       auth: process.env.SMTP_USER
         ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
         : undefined,
+      tls: { minVersion: "TLSv1.2" },
     });
     const info = await transporter.sendMail({
       from: MAIL_FROM,
