@@ -59,6 +59,60 @@ function verifyPassword(plain: string, stored: string): boolean {
 const DEFAULT_EMPLOYEE_PASSWORD =
   process.env.DEFAULT_EMPLOYEE_PASSWORD || "123456";
 
+// ==========================================
+// نظام التوكن (JWT مبسّط موقّع بـ HMAC — بدون اعتماديات خارجية) وصلاحيات RBAC
+// ==========================================
+const AUTH_SECRET =
+  process.env.AUTH_SECRET ||
+  (() => {
+    const s = crypto.randomBytes(32).toString("hex");
+    console.warn(
+      "⚠️ لم يتم ضبط AUTH_SECRET — تم توليد سر مؤقت (ستُبطل الجلسات عند كل إعادة تشغيل). يُنصح بضبطه في البيئة."
+    );
+    return s;
+  })();
+const TOKEN_TTL_SECONDS = Number(process.env.TOKEN_TTL_SECONDS) || 12 * 60 * 60; // 12 ساعة
+
+function b64url(input: Buffer | string): string {
+  return Buffer.from(input)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+function signToken(payload: Record<string, any>): string {
+  const body = { ...payload, exp: Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS };
+  const head = b64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const data = b64url(JSON.stringify(body));
+  const sig = b64url(
+    crypto.createHmac("sha256", AUTH_SECRET).update(`${head}.${data}`).digest()
+  );
+  return `${head}.${data}.${sig}`;
+}
+function verifyToken(token: string): Record<string, any> | null {
+  if (!token || typeof token !== "string") return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [head, data, sig] = parts;
+  const expected = b64url(
+    crypto.createHmac("sha256", AUTH_SECRET).update(`${head}.${data}`).digest()
+  );
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(data, "base64").toString("utf8"));
+    if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+function getBearer(req: express.Request): string {
+  const h = req.headers["authorization"] || "";
+  return h.startsWith("Bearer ") ? h.slice(7) : "";
+}
+
 // تهيئة عميل Gemini الذكي بالذكاء الاصطناعي
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -128,6 +182,38 @@ function rateLimit(maxRequests: number, windowMs: number) {
 
 // حماية مسارات الذكاء الاصطناعي من الاستهلاك المفرط (مكلفة)
 app.use("/api/ai", rateLimit(30, 60 * 1000));
+
+// بوابة المصادقة المركزية: تحمي كل مسارات /api عدا المسارات العامة
+const PUBLIC_API_PATHS = new Set([
+  "/api/login",
+  "/api/login/google",
+  "/api/config",
+]);
+app.use((req, res, next) => {
+  if (!req.path.startsWith("/api")) return next();
+  if (req.method === "OPTIONS") return next();
+  if (PUBLIC_API_PATHS.has(req.path)) return next();
+
+  const payload = verifyToken(getBearer(req));
+  if (!payload) {
+    return res
+      .status(401)
+      .json({ error: "غير مصرّح — يرجى تسجيل الدخول مجدداً.", code: "UNAUTHORIZED" });
+  }
+  (req as any).user = payload;
+  next();
+});
+
+// التحقق من صلاحية المدير لمسار معيّن
+function requireManager(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const user = (req as any).user;
+  if (!user || user.role !== "manager") {
+    return res
+      .status(403)
+      .json({ error: "هذا الإجراء متاح للمدير العام فقط.", code: "FORBIDDEN" });
+  }
+  next();
+}
 
 // تشخيص حالة الاتصال بـ Baserow - تم التعطيل بالكامل والاعتماد على قوقل شيت والملفات المحلية بناء على طلب العميل
 const getBaserowConfig = () => {
@@ -593,7 +679,7 @@ app.get("/api/app-settings", (req, res) => {
 });
 
 // ب) تحديث إعدادات التطبيق العامة (متاح للمدير فقط)
-app.post("/api/app-settings", (req, res) => {
+app.post("/api/app-settings", requireManager, (req, res) => {
   const { googleSheetId, googleSheetUrl, googleDriveFolderId, googleDriveFolderUrl, accountantEmail } = req.body;
   
   if (googleSheetId !== undefined) appSettings.googleSheetId = googleSheetId;
@@ -1258,7 +1344,7 @@ app.get("/api/employees", async (req, res) => {
 });
 
 // إضافة مندوب مبيعات جديد
-app.post("/api/employees", async (req, res) => {
+app.post("/api/employees", requireManager, async (req, res) => {
   const { name, email, phone, department } = req.body;
   const cfg = getBaserowConfig();
 
@@ -1354,7 +1440,7 @@ https://baserow.io/database/${dbId}/table/${tblEmp}?grid-search=${encodeURICompo
 });
 
 // حذف مندوب مبيعات
-app.delete("/api/employees/:id", async (req, res) => {
+app.delete("/api/employees/:id", requireManager, async (req, res) => {
   const { id } = req.params;
   const cfg = getBaserowConfig();
 
@@ -1604,10 +1690,12 @@ app.post("/api/login", rateLimit(10, 5 * 60 * 1000), async (req, res) => {
     typedUsername === managerUsername &&
     password === managerPassword
   ) {
+    const user = { name: "المدير العام (نبيل الزبير)", email: "nabilalzubair@gmail.com" };
     return res.json({
       success: true,
       role: "manager",
-      user: { name: "المدير العام (نبيل الزبير)", email: "nabilalzubair@gmail.com" }
+      user,
+      token: signToken({ sub: "manager", role: "manager", name: user.name, email: user.email }),
     });
   }
 
@@ -1624,18 +1712,63 @@ app.post("/api/login", rateLimit(10, 5 * 60 * 1000), async (req, res) => {
       (foundRep as any)["كلمة المرور"] = hashPassword(password);
       saveEmployeesLocal();
     }
+    const user = {
+      id: foundRep.id,
+      name: foundRep["الاسم"],
+      email: foundRep["البريد الإلكتروني"] || `${typedUsername}@expotime.com`,
+    };
     return res.json({
       success: true,
       role: "rep",
-      user: { 
-        id: foundRep.id,
-        name: foundRep["الاسم"], 
-        email: foundRep["البريد الإلكتروني"] || `${typedUsername}@expotime.com` 
-      }
+      user,
+      token: signToken({ sub: String(foundRep.id), role: "rep", name: user.name, email: user.email }),
     });
   }
 
   return res.status(401).json({ error: "اسم المستخدم أو كلمة المرور غير صحيحة، يرجى التواصل مع المدير العام لتعديل بيانات دخولك." });
+});
+
+// 5.6. تسجيل الدخول عبر Google (مطابقة البريد مع المدير أو قائمة المندوبين)
+app.post("/api/login/google", rateLimit(15, 5 * 60 * 1000), async (req, res) => {
+  const { email } = req.body;
+  if (!email || typeof email !== "string") {
+    return res.status(400).json({ error: "بريد Google مطلوب." });
+  }
+  const typedEmail = email.trim().toLowerCase();
+
+  // 1) المدير العام عبر البريد
+  const managerEmail = (process.env.MANAGER_EMAIL || "nabilalzubair@gmail.com").trim().toLowerCase();
+  if (typedEmail === managerEmail) {
+    const user = { name: "المدير العام (نبيل الزبير)", email: managerEmail };
+    return res.json({
+      success: true,
+      role: "manager",
+      user,
+      token: signToken({ sub: "manager", role: "manager", name: user.name, email: user.email }),
+    });
+  }
+
+  // 2) مطابقة بريد المندوب في قائمة الموظفين
+  const foundRep = mockEmployeesList.find(
+    (emp: any) => String(emp["البريد الإلكتروني"] || "").trim().toLowerCase() === typedEmail
+  );
+  if (foundRep) {
+    const user = {
+      id: foundRep.id,
+      name: foundRep["الاسم"],
+      email: foundRep["البريد الإلكتروني"],
+    };
+    return res.json({
+      success: true,
+      role: "rep",
+      user,
+      token: signToken({ sub: String(foundRep.id), role: "rep", name: user.name, email: user.email }),
+    });
+  }
+
+  return res
+    .status(401)
+    .json({ error: "حساب Google هذا غير مسجّل في المنظومة كعضو معتمد." });
 });
 
 // دالة لجلب كافة الشركات من Baserow مع دعم الصفحات المتعددة للتأكد من فحص التكرار بدقة
@@ -2083,7 +2216,7 @@ app.patch("/api/companies/:id", async (req, res) => {
 });
 
 // حذف شركة/عميل (لصلاحيات المدير فقط)
-app.delete("/api/companies/:id", async (req, res) => {
+app.delete("/api/companies/:id", requireManager, async (req, res) => {
   const companyIdStr = req.params.id;
   const cfg = getBaserowConfig();
 
@@ -2121,7 +2254,7 @@ app.delete("/api/companies/:id", async (req, res) => {
 });
 
 // رابط لإجراء تعديل بيانات ممثل المبيعات (المندوب)
-app.patch("/api/employees/:id", async (req, res) => {
+app.patch("/api/employees/:id", requireManager, async (req, res) => {
   const { id } = req.params;
   const { name, email, phone, department } = req.body;
   const cfg = getBaserowConfig();
