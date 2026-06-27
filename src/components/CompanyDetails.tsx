@@ -55,19 +55,7 @@ export function getSafeString(val: any): string {
 interface CompanyDetailsProps {
   company: Company | null;
   onClose: () => void;
-  onUpdate: (updatedFields: {
-    الحالة: string;
-    الأولوية: string;
-    آخر_تواصل: string;
-    ملاحظات: string;
-    "اسم الشركة"?: string;
-    "كود الشركة"?: string;
-    "النشاط"?: string;
-    "المدينة"?: string;
-    "الجوال الرئيسي"?: string;
-    "البريد الإلكتروني"?: string;
-    "مسؤول المبيعات"?: string;
-  }) => Promise<void>;
+  onUpdate: (updatedFields: any) => Promise<void>;
   salesperson: string;
   isManager?: boolean;
   employeesList?: any[];
@@ -95,6 +83,9 @@ export default function CompanyDetails({
   const [companyPhone, setCompanyPhone] = useState("");
   const [companyEmail, setCompanyEmail] = useState("");
   const [companyRep, setCompanyRep] = useState("");
+
+  const [companyExhibitions, setCompanyExhibitions] = useState<string[]>([]);
+  const [exhibitionInputText, setExhibitionInputText] = useState("");
 
   const [followups, setFollowups] = useState<Followup[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -165,6 +156,11 @@ export default function CompanyDetails({
       setCompanyPhone(getSafeString(company["الجوال الرئيسي"]) || "");
       setCompanyEmail(getSafeString(company["البريد الإلكتروني"]) || "");
       setCompanyRep(getSafeString(company["مسؤول المبيعات"]) || salesperson || "مؤيدة");
+
+      const rawExhs = company["المعارض"] || [];
+      const exhsArray = Array.isArray(rawExhs) ? rawExhs : (company["المعرض"] ? [company["المعرض"]] : []);
+      setCompanyExhibitions(exhsArray);
+      setExhibitionInputText("");
 
       setIsEditingAll(false);
       setError("");
@@ -586,6 +582,8 @@ ${itemsStr}
         fieldsToSave["مسؤول المبيعات"] = companyRep;
         // نمرر المندوب كحقل معتمد للمتابعة
         fieldsToSave["المندوب"] = companyRep;
+        fieldsToSave["المعرض"] = companyExhibitions[0] || "";
+        fieldsToSave["المعارض"] = companyExhibitions;
       }
 
       await onUpdate(fieldsToSave);
@@ -816,6 +814,54 @@ ${itemsStr}
                 </select>
                 <p className="text-[9px] text-amber-700 mt-1">سيتم تغيير مسؤول الشركة المسجل في Baserow فور الحفظ.</p>
               </div>
+
+              <div className="space-y-2 pt-2 border-t border-slate-200">
+                <label className="text-[10px] font-bold text-slate-600">المعارض المشارك بها العميل (حتى 10 معارض) 🎪</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    value={exhibitionInputText}
+                    onChange={(e) => setExhibitionInputText(e.target.value)}
+                    placeholder="اكتب اسم المعرض واضغط إضافة"
+                    className="flex-1 text-xs rounded-lg border border-slate-200 px-3 py-1.5 bg-white text-slate-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const trimmed = exhibitionInputText.trim();
+                      if (trimmed) {
+                        if (companyExhibitions.length >= 10) {
+                          alert("الحد الأقصى للمعارض المرتبطة بالعميل هو 10 معارض.");
+                          return;
+                        }
+                        if (!companyExhibitions.includes(trimmed)) {
+                          setCompanyExhibitions([...companyExhibitions, trimmed]);
+                        }
+                        setExhibitionInputText("");
+                      }
+                    }}
+                    className="px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                  >
+                    ➕ إضافة
+                  </button>
+                </div>
+                {companyExhibitions.length > 0 && (
+                  <div className="flex flex-wrap gap-1 p-1.5 bg-slate-50 rounded-lg border border-slate-150">
+                    {companyExhibitions.map((exh, idx) => (
+                      <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] font-bold rounded border border-blue-150">
+                        <span>{exh}</span>
+                        <button
+                          type="button"
+                          onClick={() => setCompanyExhibitions(companyExhibitions.filter(item => item !== exh))}
+                          className="text-blue-400 hover:text-blue-600 font-bold ml-1"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div className="space-y-4">
@@ -871,6 +917,25 @@ ${itemsStr}
                   </span>
                 </a>
               </div>
+              {/* عرض المعارض المرتبط بها العميل */}
+              <div className="p-3.5 bg-blue-50/30 rounded-xl border border-blue-100 space-y-2">
+                <span className="text-[10px] text-blue-800 font-extrabold flex items-center gap-1">
+                  <span className="text-xs">🎪</span>
+                  <span>المعارض المشارك بها العميل (حتى 10 معارض):</span>
+                </span>
+                {companyExhibitions && companyExhibitions.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {companyExhibitions.map((exh, idx) => (
+                      <span key={idx} className="inline-flex items-center px-2.5 py-1 bg-white text-blue-700 text-[10px] font-bold rounded-lg border border-blue-150 shadow-sm">
+                        {exh}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-[11px] text-slate-400 block italic">لم يتم ربط أي معارض بهذا العميل بعد.</span>
+                )}
+              </div>
+
               <p className="text-[10px] text-slate-400 flex items-center gap-1 px-1 leading-relaxed">
                 <span>* لا يمكن تعديل بيانات التواصل والرموز الأساسية من هذه الشاشة لحماية سلامة المزامنة وجداول الخادم. يمكن للمدير استخدام الضوابط الإدارية أعلاه للتجاوز والتعديل المباشر.</span>
               </p>

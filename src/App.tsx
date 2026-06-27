@@ -232,6 +232,8 @@ export default function App() {
 
   // حقل المعرض للعميل الجديد
   const [newCompanyExhibition, setNewCompanyExhibition] = useState("");
+  const [newCompanyExhibitions, setNewCompanyExhibitions] = useState<string[]>([]);
+  const [newExhibitionInput, setNewExhibitionInput] = useState("");
 
   // حالات فتح لوحة إدارة المستخدمين والمناديب
   const [showEmployeesPanel, setShowEmployeesPanel] = useState(false);
@@ -264,6 +266,14 @@ export default function App() {
   const [newCompanyNotes, setNewCompanyNotes] = useState("");
   const [newCompanySource, setNewCompanySource] = useState("إدخال يدوي");
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
+
+  // توليد كود الشركة تلقائياً عند الدخول لشاشة الإدخال اليدوي
+  useEffect(() => {
+    if (importTab === "manual" && !newCompanyCode) {
+      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+      setNewCompanyCode(`COMP-${randomSuffix}`);
+    }
+  }, [importTab, newCompanyCode]);
 
   // ميزتان إضافيتان لتنبيهات تكرار العملاء ومخرجات استيراد الإكسل التفصيلية
   const [duplicateWarning, setDuplicateWarning] = useState<{
@@ -618,7 +628,9 @@ export default function App() {
             "مسؤول المبيعات": newCompanyRep || selectedRep || "مؤيدة",
             "الأولوية": newCompanyPriority || "متوسطة",
             "ملاحظات": newCompanyNotes,
-            "المصدر": newCompanySource || "إدخال يدوي"
+            "المصدر": newCompanySource || "إدخال يدوي",
+            "المعرض": newCompanyExhibitions[0] || "",
+            "المعارض": newCompanyExhibitions
           }
         })
       });
@@ -631,6 +643,8 @@ export default function App() {
         setNewCompanyPhone("");
         setNewCompanyEmail("");
         setNewCompanyNotes("");
+        setNewCompanyExhibitions([]);
+        setNewExhibitionInput("");
         
         if (isManagerMode) {
           fetchAllManagerData();
@@ -1984,6 +1998,34 @@ export default function App() {
                             </button>
                           )}
                         </div>
+
+                        {/* دليل حل مشكلة حظر الوصول 403 لـ Google Sheets */}
+                        <div className="mt-6 bg-amber-50 border border-amber-200 rounded-2xl p-5 text-right space-y-3.5">
+                          <h4 className="text-xs font-black text-amber-800 flex items-center gap-2">
+                            <span>⚠️ دليل تجاوز وحل مشكلة الحظر (Access Blocked: 403) لمزامنة Google Sheets</span>
+                          </h4>
+                          <p className="text-[11px] leading-relaxed text-amber-900">
+                            عند استخدام الحساب <strong className="font-sans text-xs">dataexpotime@gmail.com</strong> للمرة الأولى، قد تواجه رسالة منع من Google بسبب عدم اكتمال فحص التطبيق التجريبي <span className="font-sans text-xs">gen-lang-client-0569030195</span>. يمكنك حلها فوراً بأحد الحلين التاليين:
+                          </p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                            <div className="bg-white p-3.5 rounded-xl border border-amber-100 space-y-1.5">
+                              <span className="text-[11px] font-bold text-amber-900 block border-b border-amber-50 pb-1">💡 الحل الأول (تفعيل وضع الإنتاج - لجميع المستخدمين):</span>
+                              <ol className="text-[10px] text-slate-600 list-decimal list-inside space-y-1">
+                                <li>افتح <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" className="text-blue-600 underline font-semibold">شاشة موافقة OAuth في Google Cloud Console</a> للمشروع <span className="font-sans text-[10px]">gen-lang-client-0569030195</span>.</li>
+                                <li>ضمن قسم <strong>Publishing status</strong> (حالة النشر)، اضغط على زر <strong>Publish App</strong> لتحويله إلى وضع الإنتاج.</li>
+                                <li>عند تسجيل الدخول بعد ذلك، انقر على <strong>خيارات متقدمة (Advanced)</strong> ثم <strong>الانتقال إلى التطبيق (Go to app - unsafe)</strong> وسيتم الربط فوراً!</li>
+                              </ol>
+                            </div>
+                            <div className="bg-white p-3.5 rounded-xl border border-amber-100 space-y-1.5">
+                              <span className="text-[11px] font-bold text-amber-900 block border-b border-amber-50 pb-1">💡 الحل الثاني (إضافة كـ مستخدم تجريبي):</span>
+                              <ol className="text-[10px] text-slate-600 list-decimal list-inside space-y-1">
+                                <li>في نفس <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" className="text-blue-600 underline font-semibold">شاشة موافقة OAuth</a>، انزل لأسفل حتى تصل إلى قسم <strong>Test Users</strong>.</li>
+                                <li>انقر على زر <strong>Add Users</strong> (إضافة مستخدمين).</li>
+                                <li>اكتب الإيميل المعتمد: <strong className="font-sans text-xs">dataexpotime@gmail.com</strong> ثم اضغط على <strong>Save (حفظ)</strong>.</li>
+                              </ol>
+                            </div>
+                          </div>
+                        </div>
                       </div>
 
                       {googleUser && (
@@ -2233,6 +2275,54 @@ export default function App() {
                             <option key={st} value={st}>{st}</option>
                           ))}
                         </select>
+                      </div>
+
+                      <div className="md:col-span-3 space-y-2">
+                        <label className="font-extrabold text-slate-700">المعارض المشارك بها العميل (حتى 10 معارض) 🎪</label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            value={newExhibitionInput}
+                            onChange={(e) => setNewExhibitionInput(e.target.value)}
+                            placeholder="اكتب اسم المعرض واضغط إضافة"
+                            className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white text-slate-800"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const trimmed = newExhibitionInput.trim();
+                              if (trimmed) {
+                                if (newCompanyExhibitions.length >= 10) {
+                                  alert("الحد الأقصى للمعارض المرتبطة بالعميل هو 10 معارض.");
+                                  return;
+                                }
+                                if (!newCompanyExhibitions.includes(trimmed)) {
+                                  setNewCompanyExhibitions([...newCompanyExhibitions, trimmed]);
+                                }
+                                setNewExhibitionInput("");
+                              }
+                            }}
+                            className="px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors cursor-pointer"
+                          >
+                            ➕ إضافة
+                          </button>
+                        </div>
+                        {newCompanyExhibitions.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 p-2 bg-slate-50 rounded-xl border border-slate-150">
+                            {newCompanyExhibitions.map((exh, idx) => (
+                              <span key={idx} className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg border border-blue-150">
+                                <span>{exh}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setNewCompanyExhibitions(newCompanyExhibitions.filter(item => item !== exh))}
+                                  className="text-blue-400 hover:text-blue-600 font-bold ml-1"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       <div className="md:col-span-3 space-y-1">

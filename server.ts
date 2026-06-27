@@ -73,7 +73,7 @@ let mockEmployeesList = [
 ];
 
 // بيانات تجريبية (Mock Data) للشركات في حال عدم توفر الاتصال بـ Baserow
-let mockCompanies = [
+let mockCompanies: any[] = [
   {
     id: 1,
     "كود الشركة": "COMP-101",
@@ -920,10 +920,70 @@ app.post("/api/ai/clean-excel-data", async (req, res) => {
       };
     });
 
+    // حفظ البيانات في قاعدة البيانات وتصفية التكرار فورياً
+    const cfg = getBaserowConfig();
+    let existingCompanies: any[] = [];
+    try {
+      if (cfg.isConfigured) {
+        existingCompanies = await fetchAllBaserowCompanies(cfg);
+      } else {
+        existingCompanies = mockCompanies;
+      }
+    } catch (error: any) {
+      console.error("فشل تحميل قائمة فحص التكرار أثناء الاستيراد الذكي:", error.message);
+      existingCompanies = mockCompanies;
+    }
+
+    const toAdd: any[] = [];
+    const skippedCompanies: any[] = [];
+
+    for (const comp of initializedRows) {
+      const duplicate = findDuplicateCompany(comp, existingCompanies);
+      if (duplicate) {
+        skippedCompanies.push({
+          name: comp["اسم الشركة"],
+          code: duplicate["كود الشركة"] || "غير معروف",
+          phone: comp["الجوال الرئيسي"]
+        });
+      } else {
+        toAdd.push(comp);
+        existingCompanies.push(comp); // منع التكرار داخل نفس الملف
+      }
+    }
+
+    if (!cfg.isConfigured) {
+      for (const comp of toAdd) {
+        const newId = mockCompanies.length + 1;
+        mockCompanies.push({ id: newId, ...comp });
+      }
+      saveCompaniesLocal();
+    } else {
+      // الرفع لـ Baserow
+      const chunkSize = 200;
+      for (let i = 0; i < toAdd.length; i += chunkSize) {
+        const chunk = toAdd.slice(i, i + chunkSize);
+        const url = `https://api.baserow.io/api/database/rows/table/${cfg.tableCompanies}/batch/?user_field_names=true`;
+        
+        const response = await fetch(url, {
+          method: "POST",
+          headers: getBaserowHeaders(cfg.token),
+          body: JSON.stringify({ items: chunk })
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          console.error(`فشل إضافة دفعة ذكية في Baserow (${response.status}):`, text);
+        }
+      }
+    }
+
     return res.json({
       success: true,
-      message: "تم تنظيف وتنسيق ملف الإكسل المبعثر بنجاح بواسطة الذكاء الاصطناعي 🟢",
-      data: initializedRows
+      message: "تم تنظيف وتنسيق وحفظ ملف الإكسل المبعثر بنجاح بواسطة الذكاء الاصطناعي 🟢",
+      data: toAdd,
+      count: toAdd.length,
+      skippedCount: skippedCompanies.length,
+      skipped: skippedCompanies
     });
   } catch (error) {
     console.error("خطأ معالجة ملف الإكسل بـ Gemini:", error.message);
@@ -1609,7 +1669,9 @@ app.post("/api/companies/batch", async (req, res) => {
       "الأولوية": c["الأولوية"] || "متوسطة",
       "آخر تواصل": c["آخر تواصل"] || "",
       "ملاحظات": c["ملاحظات"] || "",
-      "المصدر": c["المصدر"] || "يدوي / إكسل"
+      "المصدر": c["المصدر"] || "يدوي / إكسل",
+      "المعرض": c["المعرض"] || "",
+      "المعارض": Array.isArray(c["المعارض"]) ? c["المعارض"].slice(0, 10) : (c["المعرض"] ? [c["المعرض"]] : [])
     };
   });
 
@@ -1727,7 +1789,9 @@ app.post("/api/companies", async (req, res) => {
       "الأولوية": c["الأولوية"] || "متوسطة",
       "آخر تواصل": c["آخر تواصل"] || "",
       "ملاحظات": c["ملاحظات"] || "",
-      "المصدر": c["المصدر"] || "يدوي / إكسل"
+      "المصدر": c["المصدر"] || "يدوي / إكسل",
+      "المعرض": c["المعرض"] || "",
+      "المعارض": Array.isArray(c["المعارض"]) ? c["المعارض"].slice(0, 10) : (c["المعرض"] ? [c["المعرض"]] : [])
     };
   });
 
@@ -1842,6 +1906,8 @@ app.patch("/api/companies/:id", async (req, res) => {
       "الجوال الرئيسي": الجوال_الرئيسي ? serverFormatPhone(الجوال_الرئيسي) : mockCompanies[companyIndex]["الجوال الرئيسي"],
       "البريد الإلكتروني": البريد_الرئيسي ? serverFormatEmail(البريد_الرئيسي) : mockCompanies[companyIndex]["البريد الإلكتروني"],
       "مسؤول المبيعات": مسؤول_المبيعات || المندوب || mockCompanies[companyIndex]["مسؤول المبيعات"],
+      "المعرض": req.body["المعرض"] !== undefined ? req.body["المعرض"] : mockCompanies[companyIndex]["المعرض"],
+      "المعارض": req.body["المعارض"] !== undefined ? req.body["المعارض"] : mockCompanies[companyIndex]["المعارض"]
     };
 
     // إنشاء سجل متابعة جديد
@@ -1905,6 +1971,12 @@ app.patch("/api/companies/:id", async (req, res) => {
     }
     if (مسؤول_المبيعات) {
       companyPayload["مسؤول المبيعات"] = مسؤول_المبيعات;
+    }
+    if (req.body["المعرض"] !== undefined) {
+      companyPayload["المعرض"] = req.body["المعرض"];
+    }
+    if (req.body["المعارض"] !== undefined) {
+      companyPayload["المعارض"] = req.body["المعارض"];
     }
 
     const updateResponse = await fetch(updateCompanyUrl, {
