@@ -797,6 +797,7 @@ function writeAccountingRequests(requests: any[]) {
   } catch (err) {
     console.error("خطأ حفظ ملف طلبات المحاسبة:", err);
   }
+  scheduleSave(TABS.accounting, () => requests);
 }
 
 // أ) جلب طلبات المحاسبة
@@ -958,12 +959,13 @@ Return ONLY a valid, parseable JSON array of objects without any markdown blocks
 app.post("/api/ai/clean-excel-data", async (req, res) => {
   const { rows, salesRep } = req.body;
 
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(500).json({ error: "مفتاح Gemini API Key غير مبرمج في السيرفر بعد." });
-  }
-
+  // التحقق من صحة المدخلات أولاً قبل فحص توفر المفتاح
   if (!rows || !Array.isArray(rows)) {
     return res.status(400).json({ error: "الرجاء توفير مصفوفة الصفوف من ملف الإكسل لمعالجتها." });
+  }
+
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({ error: "مفتاح Gemini API Key غير مبرمج في السيرفر بعد." });
   }
 
   try {
@@ -1957,11 +1959,16 @@ app.patch("/api/companies/:id", async (req, res) => {
       "المدينة": المدينة || mockCompanies[companyIndex]["المدينة"],
       "الجوال الرئيسي": الجوال_الرئيسي ? serverFormatPhone(الجوال_الرئيسي) : mockCompanies[companyIndex]["الجوال الرئيسي"],
       "البريد الإلكتروني": البريد_الرئيسي ? serverFormatEmail(البريد_الرئيسي) : mockCompanies[companyIndex]["البريد الإلكتروني"],
-      "مسؤول المبيعات": مسؤول_المبيعات || المندوب || mockCompanies[companyIndex]["مسؤول المبيعات"],
+      // لا نغيّر مسؤول المبيعات إلا عند تمريره صراحةً (يمنع إعادة الإسناد غير المقصودة عبر حقل "المندوب")
+      "مسؤول المبيعات": مسؤول_المبيعات || mockCompanies[companyIndex]["مسؤول المبيعات"],
     };
 
-    // إنشاء سجل متابعة جديد
-    const newFollowupId = mockFollowups.length + 1;
+    // إنشاء سجل متابعة جديد بمعرّف فريد (لا يعتمد على طول المصفوفة لتفادي التعارض)
+    const maxFollowupId = mockFollowups.reduce((mx, f) => {
+      const n = Number(f.id);
+      return Number.isFinite(n) && n > mx ? n : mx;
+    }, 0);
+    const newFollowupId = maxFollowupId + 1;
     const newFollowup = {
       id: newFollowupId,
       "الشركة المرتبطة": comIdNum,
@@ -2314,11 +2321,19 @@ const bootstrapData = async () => {
       console.log(`ℹ️ تبويب "${tab}" فارغ — ستتم مزامنة البيانات المحلية إليه.`);
     }
   }
+  // طلبات المحاسبة (مخزّنة في ملف مستقل)
+  const accRows = await loadTable(TABS.accounting);
+  if (accRows && accRows.length) {
+    writeAccountingRequests(accRows);
+    console.log(`🟢 تم تحميل ${accRows.length} طلب محاسبة من تبويب "${TABS.accounting}".`);
+  }
+
   // مزامنة أولية للتأكد من توافق الشيت مع الحالة الحالية
   scheduleSave(TABS.companies, () => mockCompanies);
   scheduleSave(TABS.employees, () => mockEmployeesList);
   scheduleSave(TABS.quotations, () => mockQuotations);
   scheduleSave(TABS.followups, () => mockFollowups);
+  scheduleSave(TABS.accounting, () => readAccountingRequests());
 };
 
 // دمج Vite Middleware في وضع التطوير

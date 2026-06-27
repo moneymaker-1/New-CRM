@@ -266,4 +266,5 @@ export const TABS = {
   quotations: "Quotations",
   followups: "Followups",
   settings: "Settings",
+  accounting: "AccountingRequests",
 } as const;
