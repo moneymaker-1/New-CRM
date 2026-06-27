@@ -29,6 +29,7 @@ import {
   Percent,
   CalendarDays,
   Trash2,
+  Send,
   X,
   Mail,
   Phone,
@@ -192,6 +193,17 @@ export default function App() {
   const [empActionError, setEmpActionError] = useState("");
   const [empActionSuccess, setEmpActionSuccess] = useState("");
   const [latestWhatsappUrl, setLatestWhatsappUrl] = useState("");
+
+  // نظرة عامة على المناديب وعملائهم + إعادة الإسناد
+  const [repsOverview, setRepsOverview] = useState<any[]>([]);
+  const [loadingReps, setLoadingReps] = useState(false);
+  const [selectedRepCard, setSelectedRepCard] = useState<any | null>(null);
+  const [reassigningId, setReassigningId] = useState<string | number | null>(null);
+  const [bulkReassignTo, setBulkReassignTo] = useState("");
+  const [rowTargets, setRowTargets] = useState<Record<string, string>>({});
+  // اختبار البريد
+  const [emailTestTo, setEmailTestTo] = useState("");
+  const [emailTestSending, setEmailTestSending] = useState(false);
 
   // حالات تعديل المناديب
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | number | null>(null);
@@ -717,6 +729,114 @@ export default function App() {
     }
   };
 
+  // جلب نظرة عامة على المناديب وعملائهم
+  const fetchRepsOverview = async () => {
+    setLoadingReps(true);
+    try {
+      const res = await fetch("/api/reps-overview");
+      if (res.ok) {
+        const data = await res.json();
+        setRepsOverview(data.reps || []);
+      }
+    } catch (err) {
+      console.error("فشل جلب نظرة المناديب", err);
+    } finally {
+      setLoadingReps(false);
+    }
+  };
+
+  // إعادة إسناد عميل واحد لمندوب آخر (صارمة مع تأكيد التزامن)
+  const handleReassignClient = async (
+    companyId: string | number,
+    toRep: string,
+    expectedCurrentRep: string
+  ) => {
+    if (!toRep) return;
+    setReassigningId(companyId);
+    try {
+      const res = await fetch(`/api/companies/${companyId}/reassign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toRep, expectedCurrentRep }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(data.message || "تم نقل العميل بنجاح.");
+        await fetchAllManagerData();
+        await fetchRepsOverview();
+        setSelectedRepCard(null);
+      } else {
+        toast.error(data.error || "تعذّر نقل العميل.");
+      }
+    } catch (err) {
+      console.error("خطأ إعادة الإسناد", err);
+      toast.error("حدث خطأ في الشبكة أثناء النقل.");
+    } finally {
+      setReassigningId(null);
+    }
+  };
+
+  // سحب كل عملاء مندوب ونقلهم لمندوب آخر
+  const handleReassignAll = async (fromRep: string, toRep: string) => {
+    if (!toRep) {
+      toast.error("اختر المندوب الهدف أولاً.");
+      return;
+    }
+    if (!(await toast.confirm(`سيتم نقل جميع عملاء "${fromRep}" إلى "${toRep}". هل أنت متأكد؟`))) {
+      return;
+    }
+    setReassigningId("ALL");
+    try {
+      const res = await fetch(`/api/reps/reassign-all`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromRep, toRep }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(data.message || "تم النقل الجماعي بنجاح.");
+        await fetchAllManagerData();
+        await fetchRepsOverview();
+        setSelectedRepCard(null);
+        setBulkReassignTo("");
+      } else {
+        toast.error(data.error || "تعذّر النقل الجماعي.");
+      }
+    } catch (err) {
+      console.error("خطأ النقل الجماعي", err);
+      toast.error("حدث خطأ في الشبكة.");
+    } finally {
+      setReassigningId(null);
+    }
+  };
+
+  // إرسال بريد اختبار للتحقق من إعدادات المزوّد
+  const handleSendTestEmail = async () => {
+    setEmailTestSending(true);
+    try {
+      const res = await fetch("/api/email/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: emailTestTo.trim() || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        if (data.simulated) {
+          toast.info(data.message || "وضع المحاكاة فعّال — لم يُضبط مزوّد بريد.");
+        } else {
+          toast.success(data.message || "تم إرسال بريد الاختبار بنجاح.");
+        }
+      } else {
+        toast.error(data.error || "فشل إرسال بريد الاختبار.");
+      }
+    } catch (err) {
+      console.error("خطأ اختبار البريد", err);
+      toast.error("حدث خطأ في الشبكة.");
+    } finally {
+      setEmailTestSending(false);
+    }
+  };
+
   const handleUpdateCompany = async (companyId: string | number, updatedFields: any) => {
     try {
       const response = await fetch(`/api/companies/${companyId}`, {
@@ -804,7 +924,10 @@ export default function App() {
     if (activeTab === "accounting") {
       fetchAccountingRequests();
     }
-  }, [activeTab]);
+    if (activeTab === "users" && isManagerMode) {
+      fetchRepsOverview();
+    }
+  }, [activeTab, isManagerMode]);
 
   // تهيئة مراقب حالة مصادقة قوقل
   useEffect(() => {
@@ -2435,56 +2558,98 @@ export default function App() {
                     </form>
                   </div>
 
-                  {/* قائمة المستخدمين الحاليين */}
+                  {/* بطاقات المناديب وعملائهم + اختبار البريد */}
                   <div className="lg:col-span-2 space-y-4">
+                    {/* أداة اختبار البريد */}
+                    <div className="bg-indigo-50/60 border border-indigo-150 rounded-xl p-3 flex flex-wrap items-center gap-2">
+                      <Mail className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <span className="text-[11px] font-extrabold text-indigo-800">اختبار إعداد البريد:</span>
+                      <input
+                        type="email"
+                        value={emailTestTo}
+                        onChange={(e) => setEmailTestTo(e.target.value)}
+                        placeholder="بريد المستلم (افتراضياً بريدك)"
+                        className="flex-1 min-w-[150px] text-[11px] rounded-lg border border-indigo-200 px-2.5 py-2 bg-white text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-indigo-400 font-mono"
+                        dir="ltr"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSendTestEmail}
+                        disabled={emailTestSending}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-extrabold px-3 py-2 rounded-lg transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        {emailTestSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                        إرسال اختبار
+                      </button>
+                    </div>
+
                     <div className="flex items-center justify-between select-none">
-                      <h4 className="font-extrabold text-xs text-slate-700 font-bold">قائمة ممثلي المبيعات النشطين بالـ CRM ({employees.length})</h4>
-                      <span className="text-[10px] text-slate-400">أي مندوب يتم حذفه من هنا سيفقد إمكانية تسجيل الدخول السري ببريده فوراً</span>
+                      <h4 className="font-extrabold text-xs text-slate-700 font-bold">
+                        بطاقات المناديب وعملائهم ({employees.length})
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={fetchRepsOverview}
+                        className="text-[10px] text-slate-500 hover:text-slate-800 flex items-center gap-1 cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${loadingReps ? "animate-spin text-blue-600" : ""}`} />
+                        تحديث
+                      </button>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[450px] overflow-y-auto pr-1">
-                      {employees.map((emp) => (
-                        <div
-                          key={emp.id}
-                          className="p-4 bg-white border border-slate-250 rounded-xl flex items-center justify-between gap-3 hover:bg-slate-50 transition-all shadow-xs"
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="h-10 w-10 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border border-blue-100 uppercase select-none font-bold">
-                              {emp["الاسم"]?.slice(0, 2) || "م"}
-                            </div>
-                            <div className="space-y-1 text-right">
-                              <div className="flex items-center gap-1.5 justify-start flex-wrap">
-                                <span className="font-bold text-xs text-slate-800">{emp["الاسم"]}</span>
-                                <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-black">
-                                  {emp["القسم"] || "مبيعات"}
-                                </span>
-                              </div>
-                              {emp["البريد الإلكتروني"] && (
-                                <span className="text-[10px] text-slate-450 font-mono flex items-center gap-1 justify-start">
-                                  <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                  {emp["البريد الإلكتروني"]}
-                                </span>
-                              )}
-                              {emp["الجوال"] && (
-                                <span className="text-[10px] text-slate-450 font-mono flex items-center gap-1 justify-start font-bold">
-                                  <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                  {emp["الجوال"]}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteEmployee(emp.id, emp["الاسم"])}
-                            disabled={empActionLoading}
-                            className="p-2.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all shrink-0 cursor-pointer text-left"
-                            title="إلغاء المندوب وحذفه نهائياً"
+                      {employees.map((emp) => {
+                        const ov = repsOverview.find(
+                          (r) => String(r.name).trim() === getSafeString(emp["الاسم"]).trim()
+                        );
+                        const clientCount = ov?.clientCount ?? 0;
+                        const deals = ov?.deals ?? 0;
+                        return (
+                          <div
+                            key={emp.id}
+                            onClick={() => setSelectedRepCard({ ...emp, overview: ov })}
+                            className="p-4 bg-white border border-slate-250 rounded-xl flex items-start justify-between gap-3 hover:bg-blue-50/40 hover:border-blue-200 transition-all shadow-xs cursor-pointer"
                           >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
+                            <div className="flex items-start gap-3">
+                              <div className="h-10 w-10 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border border-blue-100 uppercase select-none">
+                                {getSafeString(emp["الاسم"]).slice(0, 2) || "م"}
+                              </div>
+                              <div className="space-y-1 text-right">
+                                <div className="flex items-center gap-1.5 justify-start flex-wrap">
+                                  <span className="font-bold text-xs text-slate-800">{emp["الاسم"]}</span>
+                                  <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-black">
+                                    {emp["القسم"] || "مبيعات"}
+                                  </span>
+                                </div>
+                                {emp["البريد الإلكتروني"] && (
+                                  <span className="text-[10px] text-slate-450 font-mono flex items-center gap-1 justify-start">
+                                    <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    {emp["البريد الإلكتروني"]}
+                                  </span>
+                                )}
+                                <div className="flex items-center gap-1.5 pt-1">
+                                  <span className="text-[9px] bg-blue-50 text-blue-700 border border-blue-150 px-1.5 py-0.5 rounded-full font-black">
+                                    👥 {clientCount} عميل
+                                  </span>
+                                  <span className="text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-150 px-1.5 py-0.5 rounded-full font-black">
+                                    ✅ {deals} تعميد
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleDeleteEmployee(emp.id, getSafeString(emp["الاسم"])); }}
+                              disabled={empActionLoading}
+                              className="p-2.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all shrink-0 cursor-pointer text-left"
+                              title="إلغاء المندوب وحذفه نهائياً"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        );
+                      })}
 
                       {employees.length === 0 && (
                         <div className="col-span-2 text-center py-12 text-xs text-slate-400 font-bold">
@@ -2492,6 +2657,7 @@ export default function App() {
                         </div>
                       )}
                     </div>
+                    <p className="text-[10px] text-slate-400">اضغط على بطاقة المندوب لعرض تفاصيله وكل عملائه وإعادة إسنادهم.</p>
                   </div>
                 </div>
               </motion.div>
@@ -3784,6 +3950,135 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+
+      {/* ===== مودال تفاصيل المندوب وعملائه وإعادة الإسناد ===== */}
+      {selectedRepCard && (() => {
+        const repName = getSafeString(selectedRepCard["الاسم"]).trim();
+        const repClients = managerCompanies.filter(
+          (c) => getSafeString(c["مسؤول المبيعات"]).trim() === repName
+        );
+        const otherReps = employees.filter(
+          (e) => getSafeString(e["الاسم"]).trim() !== repName
+        );
+        return (
+          <div
+            className="fixed inset-0 z-[9997] flex items-center justify-center bg-black/60 p-4"
+            onClick={() => setSelectedRepCard(null)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+              dir="rtl"
+            >
+              {/* رأس */}
+              <div className="flex items-start justify-between px-5 py-4 border-b border-slate-200 sticky top-0 bg-white rounded-t-2xl z-10">
+                <div className="flex items-start gap-3">
+                  <div className="h-12 w-12 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm shrink-0">
+                    {repName.slice(0, 2) || "م"}
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-black text-slate-900">{repName}</h3>
+                    <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5">
+                      <span>{getSafeString(selectedRepCard["القسم"]) || "المبيعات"}</span>
+                      {selectedRepCard["البريد الإلكتروني"] && <span className="font-mono">{selectedRepCard["البريد الإلكتروني"]}</span>}
+                      {selectedRepCard["الجوال"] && <span className="font-mono">{selectedRepCard["الجوال"]}</span>}
+                    </div>
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-150 px-2 py-0.5 rounded-full font-black">👥 {repClients.length} عميل</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRepCard(null)}
+                  className="text-slate-400 hover:text-slate-700 text-lg font-bold px-2 cursor-pointer"
+                  aria-label="إغلاق"
+                >✕</button>
+              </div>
+
+              {/* نقل جماعي */}
+              {repClients.length > 0 && otherReps.length > 0 && (
+                <div className="mx-5 mt-4 bg-amber-50 border border-amber-200 rounded-xl p-3 flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-extrabold text-amber-800">سحب كل العملاء ونقلهم إلى:</span>
+                  <select
+                    value={bulkReassignTo}
+                    onChange={(e) => setBulkReassignTo(e.target.value)}
+                    className="text-[11px] rounded-lg border border-amber-300 px-2.5 py-1.5 bg-white text-slate-800 focus:outline-hidden font-bold"
+                  >
+                    <option value="">اختر مندوباً...</option>
+                    {otherReps.map((r) => (
+                      <option key={r.id} value={getSafeString(r["الاسم"])}>{getSafeString(r["الاسم"])}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={reassigningId === "ALL" || !bulkReassignTo}
+                    onClick={() => handleReassignAll(repName, bulkReassignTo)}
+                    className="bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-extrabold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  >
+                    {reassigningId === "ALL" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                    نقل الكل ({repClients.length})
+                  </button>
+                </div>
+              )}
+
+              {/* قائمة العملاء */}
+              <div className="p-5 space-y-2">
+                <h4 className="text-xs font-black text-slate-700 mb-2">عملاء المندوب ({repClients.length})</h4>
+                {repClients.length === 0 ? (
+                  <div className="text-center py-10 text-xs text-slate-400 font-bold bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+                    لا يوجد عملاء مرتبطون بهذا المندوب حالياً.
+                  </div>
+                ) : (
+                  repClients.map((c) => {
+                    const cid = String(c.id);
+                    return (
+                      <div key={cid} className="border border-slate-200 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 hover:bg-slate-50 transition-all">
+                        <button
+                          type="button"
+                          onClick={() => { setSelectedRepCard(null); setSelectedCompany(c); }}
+                          className="text-right flex-1 min-w-[160px] cursor-pointer"
+                        >
+                          <div className="text-xs font-extrabold text-slate-800 hover:text-blue-700">{getSafeString(c["اسم الشركة"]) || "—"}</div>
+                          <div className="text-[10px] text-slate-500 flex flex-wrap gap-x-3">
+                            <span>{getSafeString(c["الحالة"]) || "—"}</span>
+                            <span className="font-mono">{getSafeString(c["الجوال الرئيسي"]) || "—"}</span>
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={rowTargets[cid] || ""}
+                            onChange={(e) => setRowTargets((p) => ({ ...p, [cid]: e.target.value }))}
+                            className="text-[10px] rounded-lg border border-slate-250 px-2 py-1.5 bg-white text-slate-800 focus:outline-hidden font-bold"
+                          >
+                            <option value="">نقل إلى...</option>
+                            {otherReps.map((r) => (
+                              <option key={r.id} value={getSafeString(r["الاسم"])}>{getSafeString(r["الاسم"])}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={!rowTargets[cid] || reassigningId === c.id}
+                            onClick={async () => {
+                              const target = rowTargets[cid];
+                              if (!target) return;
+                              if (!(await toast.confirm(`نقل "${getSafeString(c["اسم الشركة"])}" من "${repName}" إلى "${target}"؟`))) return;
+                              handleReassignClient(c.id, target, repName);
+                            }}
+                            className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-extrabold px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                          >
+                            {reassigningId === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "نقل"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* لوحة إدارة المستخدمين والمناديب الجانبية (Slide Drawer) */}
       <AnimatePresence>

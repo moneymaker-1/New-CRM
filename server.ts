@@ -1568,14 +1568,27 @@ app.delete("/api/employees/:id", requireManager, async (req, res) => {
 
   if (!cfg.isConfigured || !cfg.tableEmployees) {
     const targetId = Number(id) || id;
-    const initialLength = mockEmployeesList.length;
-    mockEmployeesList = mockEmployeesList.filter(e => e.id !== targetId && String(e.id) !== String(id));
-    
-    if (mockEmployeesList.length < initialLength) {
-      saveEmployeesLocal();
-      return res.json({ success: true, message: "تم إزالة المندوب من النظام التجريبي." });
+    const emp = mockEmployeesList.find(e => e.id === targetId || String(e.id) === String(id));
+    if (!emp) {
+      return res.status(404).json({ error: "المندوب غير موجود محلياً." });
     }
-    return res.status(404).json({ error: "المندوب غير موجود محلياً." });
+
+    // حماية صارمة: لا يُحذف مندوب لديه عملاء مرتبطون حتى تتم إعادة إسنادهم أولاً
+    const repName = String((emp as any)["الاسم"] || "").trim();
+    const linkedClients = mockCompanies.filter(
+      (c) => String(c["مسؤول المبيعات"] || "").trim() === repName
+    ).length;
+    if (linkedClients > 0) {
+      return res.status(409).json({
+        error: `لا يمكن حذف "${repName}" لوجود ${linkedClients} عميل مرتبط به. يرجى نقل عملائه لمندوب آخر أولاً.`,
+        code: "HAS_CLIENTS",
+        linkedClients,
+      });
+    }
+
+    mockEmployeesList = mockEmployeesList.filter(e => e.id !== targetId && String(e.id) !== String(id));
+    saveEmployeesLocal();
+    return res.json({ success: true, message: "تم إزالة المندوب من النظام بنجاح." });
   }
 
   try {
@@ -2373,6 +2386,202 @@ app.delete("/api/companies/:id", requireManager, async (req, res) => {
     console.error("خطأ أثناء حذف الشركة:", error.message);
     return res.status(500).json({ error: "فشل حذف الشركة من خادم Baserow الرئيسي", details: error.message });
   }
+});
+
+// ==========================================
+// إدارة ربط العملاء بالمناديب وإعادة الإسناد (صارمة تقنياً — للمدير فقط)
+// ==========================================
+
+// التحقق من أن اسم المندوب يطابق موظفاً فعلياً مسجّلاً
+function isValidRepName(name: string): boolean {
+  const n = String(name || "").trim();
+  if (!n) return false;
+  return mockEmployeesList.some((e: any) => String(e["الاسم"] || "").trim() === n);
+}
+
+// نظرة عامة على المناديب وعملائهم (عدد العملاء وتوزيع الحالات والصفقات)
+app.get("/api/reps-overview", requireManager, (req, res) => {
+  const overview = mockEmployeesList.map((emp: any) => {
+    const repName = String(emp["الاسم"] || "").trim();
+    const clients = mockCompanies.filter(
+      (c) => String(c["مسؤول المبيعات"] || "").trim() === repName
+    );
+    const statusBreakdown: { [k: string]: number } = {};
+    let deals = 0;
+    for (const c of clients) {
+      const st = String(c["الحالة"] || "غير محدد");
+      statusBreakdown[st] = (statusBreakdown[st] || 0) + 1;
+      if (st === "تم التعميد" || st === "تم التنفيذ") deals++;
+    }
+    return {
+      id: emp.id,
+      name: repName,
+      email: emp["البريد الإلكتروني"] || "",
+      phone: emp["الجوال"] || "",
+      department: emp["القسم"] || "المبيعات",
+      clientCount: clients.length,
+      deals,
+      statusBreakdown,
+    };
+  });
+
+  // عملاء بلا مندوب صالح (أيتام) — للكشف عن أخطاء الربط
+  const orphanClients = mockCompanies.filter(
+    (c) => !isValidRepName(String(c["مسؤول المبيعات"] || ""))
+  ).length;
+
+  res.json({ reps: overview, totalClients: mockCompanies.length, orphanClients });
+});
+
+// إعادة إسناد عميل واحد إلى مندوب آخر (صارمة: تحقق من الوجود والصلاحية والتزامن)
+app.post("/api/companies/:id/reassign", requireManager, (req, res) => {
+  const companyIdStr = req.params.id;
+  const { toRep, expectedCurrentRep } = req.body;
+
+  // 1) التحقق من المندوب الهدف
+  if (!toRep || typeof toRep !== "string" || !toRep.trim()) {
+    return res.status(400).json({ error: "يجب تحديد المندوب الهدف." });
+  }
+  if (!isValidRepName(toRep)) {
+    return res.status(400).json({ error: `المندوب الهدف "${toRep}" غير مسجّل في قائمة الموظفين.` });
+  }
+
+  // 2) إيجاد العميل
+  const idNum = parseInt(companyIdStr, 10);
+  const idx = mockCompanies.findIndex(
+    (c) => c.id === idNum || String(c.id) === companyIdStr
+  );
+  if (idx === -1) {
+    return res.status(404).json({ error: "العميل غير موجود." });
+  }
+
+  const currentRep = String(mockCompanies[idx]["مسؤول المبيعات"] || "").trim();
+  const target = toRep.trim();
+
+  // 3) التحكم بالتزامن: منع التعديل على بيانات قديمة (تفادي الأخطاء)
+  if (expectedCurrentRep !== undefined && String(expectedCurrentRep).trim() !== currentRep) {
+    return res.status(409).json({
+      error: "تغيّر إسناد العميل منذ آخر تحديث. يرجى تحديث الصفحة وإعادة المحاولة.",
+      code: "STALE",
+      currentRep,
+    });
+  }
+
+  // 4) لا تغيير إن كان المندوب نفسه
+  if (currentRep === target) {
+    return res.status(400).json({ error: "العميل مُسند بالفعل لهذا المندوب." });
+  }
+
+  // 5) تنفيذ النقل + توثيقه كسجل متابعة
+  mockCompanies[idx]["مسؤول المبيعات"] = target;
+  const maxFollowupId = mockFollowups.reduce((mx, f) => {
+    const n = Number(f.id);
+    return Number.isFinite(n) && n > mx ? n : mx;
+  }, 0);
+  mockFollowups.push({
+    id: maxFollowupId + 1,
+    "الشركة المرتبطة": mockCompanies[idx].id,
+    "الموظف المرتبط": target,
+    "تاريخ المتابعة": new Date().toISOString().split("T")[0],
+    "الحالة": mockCompanies[idx]["الحالة"] || "",
+    "الملاحظات": `إعادة إسناد العميل من "${currentRep || "غير مسند"}" إلى "${target}".`,
+    "المصدر": "إعادة إسناد إداري",
+  });
+  saveCompaniesLocal();
+  saveFollowupsLocal();
+
+  res.json({
+    success: true,
+    message: `تم نقل العميل من "${currentRep || "غير مسند"}" إلى "${target}" بنجاح. ✅`,
+    company: mockCompanies[idx],
+  });
+});
+
+// سحب كل عملاء مندوب وإسنادهم لمندوب آخر (نقل جماعي صارم)
+app.post("/api/reps/reassign-all", requireManager, (req, res) => {
+  const { fromRep, toRep } = req.body;
+  const from = String(fromRep || "").trim();
+  const to = String(toRep || "").trim();
+
+  if (!from || !to) {
+    return res.status(400).json({ error: "يجب تحديد المندوب المصدر والمندوب الهدف." });
+  }
+  if (from === to) {
+    return res.status(400).json({ error: "المندوب المصدر والهدف متطابقان." });
+  }
+  if (!isValidRepName(to)) {
+    return res.status(400).json({ error: `المندوب الهدف "${to}" غير مسجّل.` });
+  }
+
+  let moved = 0;
+  const today = new Date().toISOString().split("T")[0];
+  let maxFollowupId = mockFollowups.reduce((mx, f) => {
+    const n = Number(f.id);
+    return Number.isFinite(n) && n > mx ? n : mx;
+  }, 0);
+
+  for (const c of mockCompanies) {
+    if (String(c["مسؤول المبيعات"] || "").trim() === from) {
+      c["مسؤول المبيعات"] = to;
+      moved++;
+      mockFollowups.push({
+        id: ++maxFollowupId,
+        "الشركة المرتبطة": c.id,
+        "الموظف المرتبط": to,
+        "تاريخ المتابعة": today,
+        "الحالة": c["الحالة"] || "",
+        "الملاحظات": `نقل جماعي للعملاء من "${from}" إلى "${to}".`,
+        "المصدر": "إعادة إسناد إداري",
+      });
+    }
+  }
+
+  if (moved > 0) {
+    saveCompaniesLocal();
+    saveFollowupsLocal();
+  }
+
+  res.json({
+    success: true,
+    moved,
+    message: moved > 0
+      ? `تم نقل ${moved} عميلاً من "${from}" إلى "${to}" بنجاح. ✅`
+      : `لا يوجد عملاء مسندون لـ "${from}".`,
+  });
+});
+
+// إرسال بريد اختبار للتحقق من إعدادات مزوّد البريد (للمدير)
+app.post("/api/email/test", requireManager, async (req, res) => {
+  const user = (req as any).user;
+  const to = (req.body?.to && String(req.body.to).trim()) || user?.email;
+  if (!to) {
+    return res.status(400).json({ error: "يرجى تحديد بريد المستلم للاختبار." });
+  }
+
+  const provider = getMailProvider();
+  const result = await sendEmail({
+    to,
+    subject: "✅ رسالة اختبار - ExpoTime CRM",
+    html: `<div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;line-height:1.8">
+      <h2 style="color:#2563eb">تم إعداد البريد بنجاح</h2>
+      <p>هذه رسالة اختبار من نظام <b>ExpoTime CRM</b> للتأكد من صحة إعدادات مزوّد البريد.</p>
+      <p>المزوّد المُكتشف: <b>${provider}</b></p>
+      <p>إذا وصلتك هذه الرسالة، فإن إرسال عروض الأسعار بصيغة PDF سيعمل بنجاح. 🎉</p>
+    </div>`,
+  });
+
+  if (!result.ok) {
+    return res.status(502).json({ error: "فشل إرسال بريد الاختبار.", provider, details: result.error });
+  }
+  res.json({
+    success: true,
+    provider,
+    delivered: !result.simulated,
+    simulated: !!result.simulated,
+    message: result.simulated
+      ? `وضع المحاكاة فعّال (لم يُضبط مزوّد بريد). لم تُرسل رسالة فعلية.`
+      : `تم إرسال رسالة الاختبار إلى ${to} بنجاح عبر (${provider}). ✅`,
+  });
 });
 
 // رابط لإجراء تعديل بيانات ممثل المبيعات (المندوب)
