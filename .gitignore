@@ -6,3 +6,17 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# أسرار وبيانات اعتماد — يجب عدم رفعها أبداً
+service-account*.json
+*service-account*.json
+google-credentials*.json
+.vscode/
+.idea/
+
+# قواعد البيانات المحلية (تُولَّد أثناء التشغيل)
+companies-db.json
+followups-db.json
+employees-db.json
+quotations-db.json
+settings-db.json

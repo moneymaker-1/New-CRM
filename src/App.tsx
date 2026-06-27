@@ -4095,8 +4095,19 @@ export default function App() {
                     if (matchedComp) {
                       setSelectedCompany(matchedComp);
                     } else {
-                      // إذا لم يتم جلب المستند النشط في الكاش، نقوم ببناء مصفوفة مدمجة لفتحها
-                      setSelectedCompany(duplicateWarning.existingCompany);
+                      // إذا لم يتم جلب المستند النشط في الكاش، نبني سجل شركة مكتمل من البيانات المتوفرة
+                      const ec = duplicateWarning.existingCompany;
+                      setSelectedCompany({
+                        id: ec["كود الشركة"] || ec["اسم الشركة"],
+                        "كود الشركة": ec["كود الشركة"],
+                        "اسم الشركة": ec["اسم الشركة"],
+                        "مسؤول المبيعات": ec["مسؤول المبيعات"] || "",
+                        "الجوال الرئيسي": ec["الجوال الرئيسي"] || "",
+                        "البريد الإلكتروني": "",
+                        "الحالة": "",
+                        "الأولوية": "",
+                        "آخر تواصل": "",
+                      });
                     }
                   }}
                   className="flex-1 py-3 px-4 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs transition-colors text-center cursor-pointer shadow-xs"

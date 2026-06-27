@@ -2,10 +2,62 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import fs from "fs";
+import crypto from "crypto";
 import { GoogleGenAI, Type } from "@google/genai";
+import {
+  initSheets,
+  isSheetsEnabled,
+  getSheetInfo,
+  loadTable,
+  scheduleSave,
+  TABS,
+} from "./sheetsStore";
 
 // تحميل متغيرات البيئة من .env أو بيئة التشغيل
 dotenv.config();
+
+// ==========================================
+// إعدادات عامة قابلة للضبط عبر متغيرات البيئة (بدل القيم المضمّنة في الكود)
+// ==========================================
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
+const MANAGER_WHATSAPP = process.env.MANAGER_WHATSAPP || "966551016181";
+const BODY_LIMIT = process.env.BODY_LIMIT || "25mb";
+// أصول مسموح لها بالوصول (CORS). افتراضياً يُسمح للأصل نفسه فقط؛ يمكن وضع "*" أو قائمة مفصولة بفواصل.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// ==========================================
+// أدوات تشفير كلمات المرور (scrypt المدمج في Node — بدون اعتماديات خارجية)
+// ==========================================
+const HASH_PREFIX = "scrypt$";
+function hashPassword(plain: string): string {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derived = crypto.scryptSync(String(plain), salt, 64).toString("hex");
+  return `${HASH_PREFIX}${salt}$${derived}`;
+}
+function isHashed(stored: string): boolean {
+  return typeof stored === "string" && stored.startsWith(HASH_PREFIX);
+}
+function verifyPassword(plain: string, stored: string): boolean {
+  if (!stored || plain === undefined || plain === null) return false;
+  if (isHashed(stored)) {
+    const parts = stored.split("$");
+    const salt = parts[1];
+    const hash = parts[2];
+    if (!salt || !hash) return false;
+    const derived = crypto.scryptSync(String(plain), salt, 64).toString("hex");
+    const a = Buffer.from(hash, "hex");
+    const b = Buffer.from(derived, "hex");
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
+  // توافق رجعي: كلمات المرور القديمة المخزّنة كنص صريح
+  return String(plain) === String(stored);
+}
+// كلمة المرور الافتراضية للمندوبين الجدد (يُنصح بتغييرها عبر البيئة)
+const DEFAULT_EMPLOYEE_PASSWORD =
+  process.env.DEFAULT_EMPLOYEE_PASSWORD || "123456";
 
 // تهيئة عميل Gemini الذكي بالذكاء الاصطناعي
 const ai = new GoogleGenAI({
@@ -18,10 +70,64 @@ const ai = new GoogleGenAI({
 });
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json({ limit: "150mb" }));
-app.use(express.urlencoded({ limit: "150mb", extended: true }));
+app.use(express.json({ limit: BODY_LIMIT }));
+app.use(express.urlencoded({ limit: BODY_LIMIT, extended: true }));
+
+// ترويسات أمان أساسية (بديل خفيف عن helmet بدون اعتماديات)
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("X-XSS-Protection", "0");
+
+  // ضبط CORS عند تحديد أصول مسموح بها
+  const origin = req.headers.origin as string | undefined;
+  if (ALLOWED_ORIGINS.length > 0 && origin) {
+    if (ALLOWED_ORIGINS.includes("*") || ALLOWED_ORIGINS.includes(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET,POST,PATCH,DELETE,OPTIONS"
+      );
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    }
+  }
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+// محدّد معدّل بسيط في الذاكرة لحماية المسارات الحساسة (تسجيل الدخول والذكاء الاصطناعي)
+const rateBuckets: { [key: string]: { count: number; reset: number } } = {};
+function rateLimit(maxRequests: number, windowMs: number) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const ip =
+      (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+      req.socket.remoteAddress ||
+      "unknown";
+    const key = `${req.path}:${ip}`;
+    const now = Date.now();
+    const bucket = rateBuckets[key];
+    if (!bucket || now > bucket.reset) {
+      rateBuckets[key] = { count: 1, reset: now + windowMs };
+      return next();
+    }
+    if (bucket.count >= maxRequests) {
+      return res
+        .status(429)
+        .json({ error: "عدد كبير من الطلبات، يرجى المحاولة بعد قليل." });
+    }
+    bucket.count++;
+    next();
+  };
+}
+
+// حماية مسارات الذكاء الاصطناعي من الاستهلاك المفرط (مكلفة)
+app.use("/api/ai", rateLimit(30, 60 * 1000));
 
 // تشخيص حالة الاتصال بـ Baserow - تم التعطيل بالكامل والاعتماد على قوقل شيت والملفات المحلية بناء على طلب العميل
 const getBaserowConfig = () => {
@@ -331,8 +437,9 @@ try {
     const currentPassword = emp["كلمة المرور"] || emp["password"];
     
     const username = currentUsername || arabicToEnglishMap[name] || name.toLowerCase().replace(/\s+/g, "");
-    const password = currentPassword || "123456";
-    
+    // عند غياب كلمة المرور نولّد كلمة افتراضية مُشفّرة (لا تُخزّن كنص صريح)
+    const password = currentPassword || hashPassword(DEFAULT_EMPLOYEE_PASSWORD);
+
     if (!currentUsername || !currentPassword) {
       updatedEmployees = true;
     }
@@ -414,21 +521,32 @@ try {
   console.error("خطأ في قراءة ملف الإعدادات العامة:", e.message);
 }
 
-// دوال مساعدة لحفظ التغييرات فوراً إلى السيرفر
+// دوال مساعدة لحفظ التغييرات فوراً إلى التخزين المحلي (كنسخة احتياطية/كاش)
+// مع مزامنة كتابة فورية مؤجّلة (write-through) إلى Google Sheets عند تفعيله.
 const saveCompaniesLocal = () => {
-  try { fs.writeFileSync(COMPANIES_FILE, JSON.stringify(mockCompanies, null, 2), "utf8"); } catch(e){}
+  try { fs.writeFileSync(COMPANIES_FILE, JSON.stringify(mockCompanies, null, 2), "utf8"); }
+  catch (e: any) { console.error("تعذّر حفظ ملف الشركات محلياً:", e?.message || e); }
+  scheduleSave(TABS.companies, () => mockCompanies);
 };
 const saveFollowupsLocal = () => {
-  try { fs.writeFileSync(FOLLOWUPS_FILE, JSON.stringify(mockFollowups, null, 2), "utf8"); } catch(e){}
+  try { fs.writeFileSync(FOLLOWUPS_FILE, JSON.stringify(mockFollowups, null, 2), "utf8"); }
+  catch (e: any) { console.error("تعذّر حفظ ملف المتابعات محلياً:", e?.message || e); }
+  scheduleSave(TABS.followups, () => mockFollowups);
 };
 const saveEmployeesLocal = () => {
-  try { fs.writeFileSync(EMPLOYEES_FILE, JSON.stringify(mockEmployeesList, null, 2), "utf8"); } catch(e){}
+  try { fs.writeFileSync(EMPLOYEES_FILE, JSON.stringify(mockEmployeesList, null, 2), "utf8"); }
+  catch (e: any) { console.error("تعذّر حفظ ملف الموظفين محلياً:", e?.message || e); }
+  scheduleSave(TABS.employees, () => mockEmployeesList);
 };
 const saveQuotationsLocal = () => {
-  try { fs.writeFileSync(QUOTATIONS_FILE, JSON.stringify(mockQuotations, null, 2), "utf8"); } catch(e){}
+  try { fs.writeFileSync(QUOTATIONS_FILE, JSON.stringify(mockQuotations, null, 2), "utf8"); }
+  catch (e: any) { console.error("تعذّر حفظ ملف العروض محلياً:", e?.message || e); }
+  scheduleSave(TABS.quotations, () => mockQuotations);
 };
 const saveSettingsLocal = () => {
-  try { fs.writeFileSync(SETTINGS_FILE, JSON.stringify(appSettings, null, 2), "utf8"); } catch(e){}
+  try { fs.writeFileSync(SETTINGS_FILE, JSON.stringify(appSettings, null, 2), "utf8"); }
+  catch (e: any) { console.error("تعذّر حفظ ملف الإعدادات محلياً:", e?.message || e); }
+  scheduleSave(TABS.settings, () => [appSettings]);
 };
 
 // مساعد لتهيئة الهيدرز لـ Baserow
@@ -447,16 +565,21 @@ const getBaserowHeaders = (token: string) => {
 // 1. رابط جلب حالة وتجهيزات النظام
 app.get("/api/config", (req, res) => {
   const cfg = getBaserowConfig();
+  const sheets = getSheetInfo();
   res.json({
-    isMockEnabled: !cfg.isConfigured,
+    isMockEnabled: !cfg.isConfigured && !sheets.enabled,
     configuredTables: {
       companies: !!cfg.tableCompanies,
       employees: !!cfg.tableEmployees,
       followups: !!cfg.tableFollowups,
     },
-    message: cfg.isConfigured 
-      ? "متصل بقاعدة بيانات Baserow الحية بنجاح." 
-      : "يعمل حالياً بنمط البيانات التجريبية النشطة (Mock Database). لربط Baserow الحقيقي، يرجى ضبط المتغيرات المطلوبة في لوحة الإعدادات."
+    googleSheets: {
+      enabled: sheets.enabled,
+      sheetId: sheets.sheetId,
+    },
+    message: sheets.enabled
+      ? "متصل بقاعدة بيانات Google Sheets الحية بنجاح."
+      : "يعمل حالياً بالتخزين المحلي. لتفعيل Google Sheets يرجى ضبط بيانات حساب الخدمة في متغيرات البيئة."
   });
 });
 
@@ -497,9 +620,20 @@ app.get("/api/quotations", (req, res) => {
 // د) إضافة عرض سعر جديد
 app.post("/api/quotations", (req, res) => {
   const { companyId, companyName, amount, details, exhibition, items } = req.body;
-  
+
   if (!companyId || !companyName) {
     return res.status(400).json({ error: "معرف واسم الشركة مطلوبين لإنشاء عرض سعر." });
+  }
+
+  // التحقق من صحة المبلغ (إن وُجد): رقم منتهٍ وغير سالب وضمن حد منطقي
+  if (amount !== undefined && amount !== null && amount !== "") {
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt < 0 || amt > 1_000_000_000) {
+      return res.status(400).json({ error: "قيمة المبلغ غير صالحة." });
+    }
+  }
+  if (items !== undefined && !Array.isArray(items)) {
+    return res.status(400).json({ error: "بنود العرض يجب أن تكون قائمة (مصفوفة)." });
   }
 
   const quotationNumber = `QT-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -771,7 +905,7 @@ ${inputStr}
 Return ONLY a valid, parseable JSON array of objects without any markdown blocks, trailing commas, or surrounding explanation. Start with [ and end with ].`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         responseMimeType: "application/json"
@@ -855,7 +989,7 @@ app.post("/api/ai/clean-excel-data", async (req, res) => {
 الرجاء إرجاع كائن JSON منسق وصالح كقائمة كائنات تحتوي على هذه الحقول المحددة.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -925,7 +1059,7 @@ app.post("/api/ai/clean-excel-data", async (req, res) => {
       message: "تم تنظيف وتنسيق ملف الإكسل المبعثر بنجاح بواسطة الذكاء الاصطناعي 🟢",
       data: initializedRows
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("خطأ معالجة ملف الإكسل بـ Gemini:", error.message);
     return res.status(500).json({ error: "فشل ذكاء Gemini الاصطناعي في تنظيم وتطهير ملف الإكسل المبعثر.", details: error.message });
   }
@@ -951,7 +1085,7 @@ app.post("/api/ai/generate-email", async (req, res) => {
 صياغة رسالة بريد إلكتروني أنيقة ومنظمة ومحفزة جداً لفتح آفاق تواصل وبناء جناح متميز وجذاب في المعرض القادم. استخدم نبرة احترافية وعملية تعزز ثقة العميل بـ ExpoTime كشريك نجاح.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: GEMINI_MODEL,
       contents: prompt
     });
 
@@ -959,7 +1093,7 @@ app.post("/api/ai/generate-email", async (req, res) => {
       success: true,
       emailText: response.text || "فشل صياغة البريد الإلكتروني بالذكاء الاصطناعي."
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("خطأ أثناء صياغة الإيميل بالذكاء الاصطناعي:", error.message);
     return res.status(500).json({ error: "فشل صياغة الإيميل بالذكاء الاصطناعي.", details: error.message });
   }
@@ -988,7 +1122,7 @@ app.post("/api/ai/advise-rep", async (req, res) => {
 تأكد من صياغة الإجابة بلغة عربية مهنية، واضحة، ومحفزة جداً للمندوب.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: GEMINI_MODEL,
       contents: prompt
     });
 
@@ -1067,7 +1201,7 @@ ${JSON.stringify(repActivities, null, 2)}
 صغ التقرير بطريقة رسمية وقوية وعملية خالية من الحشو الزائد، مستعيناً بإحصائيات وأرقام النشاط المذكورة ومبالغ التعميد والعروض.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: GEMINI_MODEL,
       contents: prompt
     });
 
@@ -1078,40 +1212,6 @@ ${JSON.stringify(repActivities, null, 2)}
   } catch (error: any) {
     console.error("خطأ التقرير الإداري اليومي:", error.message);
     return res.status(500).json({ error: "فشل معالجة التقرير الإداري بالذكاء الاصطناعي.", details: error.message });
-  }
-});
-
-// 4. صياغة إيميل احترافي للعميل بالذكاء الاصطناعي
-app.post("/api/ai/generate-email", async (req, res) => {
-  const { companyName, companyNotes, emailType, customPoints } = req.body;
-
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(500).json({ error: "مفتاح Gemini API Key غير متوفر في السيرفر." });
-  }
-
-  try {
-    const prompt = `أنت ممثل خدمة عملاء وتسويق ذكي ومحترف لشركة ExpoTime المتخصصة في خدمات تصميم وبناء أجنحة المعارض والديكورات الفاخرة.
-اكتب مسودة إيميل احترافي وجذاب باللغة العربية موجه للعميل التالي:
-- اسم شركة العميل: ${companyName || "العميل الكريم"}
-- نوع البريد المطلوب: ${emailType || "تذكير عام ومتابعة صفقات معلقة"}
-- نقاط إضافية أو ملاحظات تود إدراجها: ${customPoints || "تأكيد جودة التصاميم وطلب اجتماع قصير للتنسيق"}
-- ملخص متطلبات العميل السابقة: ${companyNotes || "لا توجد ملاحظات سابقة مضافة."}
-
-المطلوب:
-صياغة رسالة بريد إلكتروني أنيقة ومنظمة ومحفزة جداً لفتح آفاق تواصل وبناء جناح متميز وجذاب في المعرض القادم. استخدم نبرة احترافية وعملية تعزز ثقة العميل بـ ExpoTime كشريك نجاح.`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: prompt
-    });
-
-    return res.json({
-      success: true,
-      emailText: response.text || "فشل صياغة البريد الإلكتروني بالذكاء الاصطناعي."
-    });
-  } catch (error: any) {
-    console.error("خطأ أثناء صياغة الإيميل بالذكاء الاصطناعي:", error.message);
-    return res.status(500).json({ error: "فشل صياغة الإيميل بالذكاء الاصطناعي.", details: error.message });
   }
 });
 
@@ -1183,12 +1283,14 @@ app.post("/api/employees", async (req, res) => {
 🔗 *رابط المندوب المباشر في جدول Baserow:*
 https://baserow.io/database/${dbId}/table/${tblEmp}?grid-search=${encodeURIComponent(empName)}`;
 
-  const whatsappUrl = `https://api.whatsapp.com/send?phone=966551016181&text=${encodeURIComponent(msgText)}`;
+  const whatsappUrl = `https://api.whatsapp.com/send?phone=${MANAGER_WHATSAPP}&text=${encodeURIComponent(msgText)}`;
 
   if (!cfg.isConfigured || !cfg.tableEmployees) {
     const newId = Date.now();
     const empUser = req.body["اسم المستخدم"] || req.body["username"] || empName.toLowerCase().replace(/\s+/g, "");
-    const empPass = req.body["كلمة المرور"] || req.body["password"] || "123456";
+    const rawPass = req.body["كلمة المرور"] || req.body["password"] || DEFAULT_EMPLOYEE_PASSWORD;
+    // تُخزّن كلمة المرور دائماً بشكل مُشفّر (scrypt)
+    const empPass = hashPassword(rawPass);
 
     const newEmp = {
       id: newId,
@@ -1350,7 +1452,7 @@ app.get("/api/companies", async (req, res) => {
         }
         return res.json(allResults);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("خطأ أثناء جلب كافة الشركات للمدير من Baserow:", error.message);
       return res.json(mockCompanies);
     }
@@ -1404,7 +1506,7 @@ app.get("/api/companies", async (req, res) => {
       });
 
       return res.json(filtered);
-    } catch (error) {
+    } catch (error: any) {
       console.error("خطأ أثناء جلب الشركات التكراري للمندوب من Baserow:", error.message);
       const filtered = mockCompanies.filter(
         (c) => c["مسؤول المبيعات"] && c["مسؤول المبيعات"].trim() === representativeName.trim()
@@ -1467,7 +1569,7 @@ app.get("/api/companies-by-rep/:repName", async (req, res) => {
     });
 
     return res.json(filtered);
-  } catch (error) {
+  } catch (error: any) {
     console.error("خطأ أثناء جلب الشركات التكراري للمندوب من Baserow:", error.message);
     const filtered = mockCompanies.filter(
       (c) => c["مسؤول المبيعات"] && c["مسؤول المبيعات"].trim() === representativeName.trim()
@@ -1477,20 +1579,29 @@ app.get("/api/companies-by-rep/:repName", async (req, res) => {
 });
 
 // 5.5. بوابة تسجيل الدخول الموحدة باليوزر والباسورد (تم إلغاء الطرق السابقة والربط بـ Baserow)
-app.post("/api/login", async (req, res) => {
+app.post("/api/login", rateLimit(10, 5 * 60 * 1000), async (req, res) => {
   const { username, password } = req.body;
 
-  if (!username || !password) {
+  if (!username || typeof username !== "string" || !password || typeof password !== "string") {
     return res.status(400).json({ error: "الرجاء إدخال اسم المستخدم وكلمة المرور." });
   }
 
   const typedUsername = username.trim().toLowerCase();
 
-  // 1. فحص المدير العام (نبيل الزبير)
+  // 1. فحص المدير العام
   const managerUsername = (process.env.MANAGER_USERNAME || "admin").trim().toLowerCase();
-  const managerPassword = process.env.MANAGER_PASSWORD || "admin123";
+  const managerPassword = process.env.MANAGER_PASSWORD || "";
+  if (!process.env.MANAGER_PASSWORD) {
+    console.warn(
+      "⚠️ تحذير أمني: لم يتم ضبط MANAGER_PASSWORD في البيئة. دخول المدير معطّل حتى ضبطها."
+    );
+  }
 
-  if (typedUsername === managerUsername && password === managerPassword) {
+  if (
+    managerPassword &&
+    typedUsername === managerUsername &&
+    password === managerPassword
+  ) {
     return res.json({
       success: true,
       role: "manager",
@@ -1498,14 +1609,19 @@ app.post("/api/login", async (req, res) => {
     });
   }
 
-  // 2. فحص المناديب من خلال قاعدة بيانات الموظفين المحلية المعتمدة
+  // 2. فحص المناديب من قاعدة بيانات الموظفين (مع دعم كلمات المرور المشفّرة والقديمة)
   const foundRep = mockEmployeesList.find((emp: any) => {
     const empUser = String(emp["اسم المستخدم"] || "").trim().toLowerCase();
-    const empPass = String(emp["كلمة المرور"] || "").trim();
-    return empUser === typedUsername && empPass === password;
+    if (empUser !== typedUsername) return false;
+    return verifyPassword(password, String(emp["كلمة المرور"] || ""));
   });
 
   if (foundRep) {
+    // ترقية كلمات المرور القديمة (النص الصريح) إلى نسخة مشفّرة عند أول دخول ناجح
+    if (!isHashed(String((foundRep as any)["كلمة المرور"] || ""))) {
+      (foundRep as any)["كلمة المرور"] = hashPassword(password);
+      saveEmployeesLocal();
+    }
     return res.json({
       success: true,
       role: "rep",
@@ -2031,7 +2147,7 @@ app.patch("/api/employees/:id", async (req, res) => {
 🔗 *رابط المندوب المباشر في جدول Baserow:*
 https://baserow.io/database/${dbId}/table/${tblEmp}?grid-search=${encodeURIComponent(finalEmp["الاسم"])}`;
 
-      const whatsappUrl = `https://api.whatsapp.com/send?phone=966551016181&text=${encodeURIComponent(msgText)}`;
+      const whatsappUrl = `https://api.whatsapp.com/send?phone=${MANAGER_WHATSAPP}&text=${encodeURIComponent(msgText)}`;
 
       saveEmployeesLocal();
       return res.json({ 
@@ -2085,7 +2201,7 @@ https://baserow.io/database/${dbId}/table/${tblEmp}?grid-search=${encodeURICompo
 🔗 *رابط المندوب المباشر في جدول Baserow:*
 https://baserow.io/database/${dbId}/table/${tblEmp}?grid-search=${encodeURIComponent(finalName)}`;
 
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=966551016181&text=${encodeURIComponent(msgText)}`;
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${MANAGER_WHATSAPP}&text=${encodeURIComponent(msgText)}`;
 
     return res.json({ 
       success: true, 
@@ -2171,8 +2287,49 @@ app.get("/api/followups", async (req, res) => {
 });
 
 
+// تهيئة Google Sheets وتحميل البيانات منه عند الإقلاع (إن كان مفعّلاً)
+const bootstrapData = async () => {
+  await initSheets();
+  if (!isSheetsEnabled()) {
+    console.log(
+      "ℹ️ Google Sheets غير مفعّل — يعمل النظام بالتخزين المحلي. لتفعيله اضبط GOOGLE_SERVICE_ACCOUNT_JSON و GOOGLE_SHEET_ID."
+    );
+    return;
+  }
+  // تحميل كل جدول من الشيت؛ عند نجاح القراءة نعتمدها كمصدر رئيسي،
+  // وإلا نبقى على البيانات المحلية ثم نزامنها للشيت لاحقاً.
+  const loaders: Array<[string, (rows: any[]) => void]> = [
+    [TABS.companies, (rows) => { if (rows.length) mockCompanies = rows; }],
+    [TABS.employees, (rows) => { if (rows.length) mockEmployeesList = rows as any; }],
+    [TABS.quotations, (rows) => { if (rows.length) mockQuotations = rows as any; }],
+    [TABS.followups, (rows) => { if (rows.length) mockFollowups = rows; }],
+  ];
+  for (const [tab, apply] of loaders) {
+    const rows = await loadTable(tab);
+    if (rows && rows.length) {
+      apply(rows);
+      console.log(`🟢 تم تحميل ${rows.length} سجلاً من تبويب "${tab}".`);
+    } else {
+      // التبويب فارغ أو غير موجود: ندفع البيانات المحلية الحالية إليه
+      console.log(`ℹ️ تبويب "${tab}" فارغ — ستتم مزامنة البيانات المحلية إليه.`);
+    }
+  }
+  // مزامنة أولية للتأكد من توافق الشيت مع الحالة الحالية
+  scheduleSave(TABS.companies, () => mockCompanies);
+  scheduleSave(TABS.employees, () => mockEmployeesList);
+  scheduleSave(TABS.quotations, () => mockQuotations);
+  scheduleSave(TABS.followups, () => mockFollowups);
+};
+
 // دمج Vite Middleware في وضع التطوير
 const startServer = async () => {
+  await bootstrapData();
+
+  // 404 موحّد بصيغة JSON لمسارات الـ API غير المعروفة (قبل الواجهة الأمامية)
+  app.use("/api", (req, res) => {
+    res.status(404).json({ error: "المسار المطلوب غير موجود." });
+  });
+
   if (process.env.NODE_ENV !== "production") {
     // تحميل Vite ديناميكياً لتجنب مشاكل التشغيل في الإنتاج
     const { createServer: createViteServer } = await import("vite");
@@ -2190,6 +2347,20 @@ const startServer = async () => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
+
+  // معالج أخطاء مركزي (يضمن إرجاع JSON بدل تعطّل الطلب)
+  app.use(
+    (
+      err: any,
+      req: express.Request,
+      res: express.Response,
+      next: express.NextFunction
+    ) => {
+      console.error("خطأ غير متوقع في الخادم:", err?.message || err);
+      if (res.headersSent) return next(err);
+      res.status(500).json({ error: "حدث خطأ داخلي في الخادم." });
+    }
+  );
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`خادم ExpoTime CRM متصل ويعمل على: http://localhost:${PORT}`);
