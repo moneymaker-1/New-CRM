@@ -658,8 +658,15 @@ export default function App() {
 
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEmpName.trim() || !newEmpEmail.trim() || !newEmpUsername.trim() || !newEmpPassword.trim()) {
-      setEmpActionError("الاسم، البريد، اسم المستخدم، وكلمة المرور حقول إجبارية.");
+    const nm = newEmpName.trim();
+    const em = newEmpEmail.trim().toLowerCase();
+    // الدخول يتم بالبريد (عبر Google)، فالحقول الإجبارية هي الاسم والبريد فقط
+    if (!nm || !em) {
+      setEmpActionError("الاسم والبريد الإلكتروني حقلان إجباريان.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+      setEmpActionError("صيغة البريد الإلكتروني غير صحيحة.");
       return;
     }
     setEmpActionLoading(true);
@@ -671,17 +678,17 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: newEmpName,
-          email: newEmpEmail,
+          name: nm,
+          email: em,
           phone: newEmpPhone,
           department: newEmpDept,
-          "اسم المستخدم": newEmpUsername,
-          "كلمة المرور": newEmpPassword
+          // اسم المستخدم = البريد لتمكين الدخول بالبريد + كلمة المرور الافتراضية
+          "اسم المستخدم": em,
         })
       });
       const data = await response.json();
       if (response.ok) {
-        setEmpActionSuccess(`تم إضافة المندوب ${newEmpName} بنجاح!`);
+        setEmpActionSuccess(`تم إضافة المندوب ${nm} بنجاح! يسجّل الدخول عبر Google ببريده (${em}).`);
         if (data.whatsappUrl) {
           setLatestWhatsappUrl(data.whatsappUrl);
         }
@@ -692,6 +699,7 @@ export default function App() {
         setNewEmpUsername("");
         setNewEmpPassword("");
         fetchEmployees();
+        fetchRepsOverview();
       } else {
         setEmpActionError(data.error || "فشل إضافة المندوب.");
       }
@@ -3980,11 +3988,14 @@ export default function App() {
                     <h3 className="text-sm font-black text-slate-900">{repName}</h3>
                     <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5">
                       <span>{getSafeString(selectedRepCard["القسم"]) || "المبيعات"}</span>
-                      {selectedRepCard["البريد الإلكتروني"] && <span className="font-mono">{selectedRepCard["البريد الإلكتروني"]}</span>}
-                      {selectedRepCard["الجوال"] && <span className="font-mono">{selectedRepCard["الجوال"]}</span>}
+                      {selectedRepCard["البريد الإلكتروني"] && <span className="font-mono">📧 {selectedRepCard["البريد الإلكتروني"]}</span>}
+                      {selectedRepCard["الجوال"] && <span className="font-mono">📞 {selectedRepCard["الجوال"]}</span>}
                     </div>
-                    <div className="flex items-center gap-1.5 pt-1">
+                    <div className="flex items-center gap-1.5 pt-1 flex-wrap">
                       <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-150 px-2 py-0.5 rounded-full font-black">👥 {repClients.length} عميل</span>
+                      <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-150 px-2 py-0.5 rounded-full font-black">✅ {repClients.filter(c => ["تم التعميد","تم التنفيذ"].includes(getSafeString(c["الحالة"]))).length} تعميد</span>
+                      <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-150 px-2 py-0.5 rounded-full font-black">⏳ {repClients.filter(c => !["تم التعميد","تم التنفيذ","غير مهتم"].includes(getSafeString(c["الحالة"]))).length} قيد المتابعة</span>
+                      <span className="text-[10px] bg-rose-50 text-rose-700 border border-rose-150 px-2 py-0.5 rounded-full font-black">🚫 {repClients.filter(c => getSafeString(c["الحالة"]) === "غير مهتم").length} غير مهتم</span>
                     </div>
                   </div>
                 </div>
@@ -4040,9 +4051,12 @@ export default function App() {
                           className="text-right flex-1 min-w-[160px] cursor-pointer"
                         >
                           <div className="text-xs font-extrabold text-slate-800 hover:text-blue-700">{getSafeString(c["اسم الشركة"]) || "—"}</div>
-                          <div className="text-[10px] text-slate-500 flex flex-wrap gap-x-3">
-                            <span>{getSafeString(c["الحالة"]) || "—"}</span>
-                            <span className="font-mono">{getSafeString(c["الجوال الرئيسي"]) || "—"}</span>
+                          <div className="text-[10px] text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5 pt-0.5">
+                            <span className="font-bold text-slate-700">📊 {getSafeString(c["الحالة"]) || "—"}</span>
+                            <span className="font-mono">📞 {getSafeString(c["الجوال الرئيسي"]) || "—"}</span>
+                            <span>⭐ {getSafeString(c["الأولوية"]) || "—"}</span>
+                            {getSafeString(c["آخر تواصل"]) && <span>🗓 {getSafeString(c["آخر تواصل"])}</span>}
+                            {getSafeString(c["المدينة"]) && <span>📍 {getSafeString(c["المدينة"])}</span>}
                           </div>
                         </button>
                         <div className="flex items-center gap-1.5">
