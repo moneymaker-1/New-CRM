@@ -122,7 +122,7 @@ export default function App() {
   // حالات تسجيل العمليات والولوج الأمنية الموحدة باليوزر والباسورد
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [activeTab, setActiveTab] = useState<"dashboard" | "companies" | "import" | "users" | "diagnostics" | "accounting">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "companies" | "import" | "users" | "diagnostics" | "accounting" | "reps">("dashboard");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const selectTab = (tab: typeof activeTab) => {
     setActiveTab(tab);
@@ -218,6 +218,15 @@ export default function App() {
   // حالات عروض الأسعار (Quotations) الفورية والتعميد المالي
   const [quotations, setQuotations] = useState<any[]>([]);
   const [loadingQuotations, setLoadingQuotations] = useState(false);
+
+  // حالات صفحة ومتابعة المناديب والدردشة
+  const [selectedRepForDetails, setSelectedRepForDetails] = useState<any | null>(null);
+  const [activeChatCompanyId, setActiveChatCompanyId] = useState<number | string | null>(null);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [newChatMessageText, setNewChatMessageText] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState<{[key: string]: string}>({});
+  const [rejectionReasonError, setRejectionReasonError] = useState("");
   const [showQuotationForm, setShowQuotationForm] = useState(false);
   const [newQuotationAmount, setNewQuotationAmount] = useState("");
   const [newQuotationDetails, setNewQuotationDetails] = useState("");
@@ -441,6 +450,54 @@ export default function App() {
       }
     } catch (err) {
       console.error("فشل جلب قائمة الموظفين", err);
+    }
+  };
+
+  const fetchChatMessages = async (companyId: number | string) => {
+    setChatLoading(true);
+    try {
+      const res = await fetch(`/api/companies/${companyId}/chat`);
+      if (res.ok) {
+        const data = await res.json();
+        setChatMessages(data);
+      }
+    } catch (err) {
+      console.error("فشل جلب رسائل المتابعة", err);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const sendChatMessage = async (companyId: number | string, customSender?: string, customMessage?: string, statusUpdate?: string, rejectionReason?: string) => {
+    const sender = customSender || (isManagerMode ? "نبيل الزبير" : (selectedRep || "مندوب"));
+    const message = customMessage || newChatMessageText;
+    
+    if (!message.trim() && !statusUpdate) return;
+    
+    try {
+      const res = await fetch(`/api/companies/${companyId}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sender,
+          message: message || (statusUpdate === "تم التعميد" ? "🟢 تم تعميد وإغلاق حالة العميل." : `🔴 تم رفض العميل لسبب: ${rejectionReason}`),
+          statusUpdate,
+          rejectionReason
+        })
+      });
+      if (res.ok) {
+        setNewChatMessageText("");
+        // تحديث رسائل المحادثة الحالية
+        fetchChatMessages(companyId);
+        // تحديث قائمة الشركات فوراً ليعكس التغيير بالحالة
+        if (isManagerMode) {
+          fetchAllManagerData();
+        } else {
+          fetchCompanies(selectedRep);
+        }
+      }
+    } catch (err) {
+      console.error("خطأ أثناء إرسال رسالة المتابعة", err);
     }
   };
 
@@ -1750,6 +1807,19 @@ export default function App() {
                     </button>
 
                     <button
+                      onClick={() => selectTab("reps")}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "reps" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold"}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <UserCheck className="w-4 h-4 text-blue-500" />
+                        <span>صفحة ومتابعة المناديب 💼</span>
+                      </div>
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${activeTab === "reps" ? "bg-blue-700 text-white" : "bg-slate-100 text-slate-655"}`}>
+                        {employees.length}
+                      </span>
+                    </button>
+
+                    <button
                       onClick={() => selectTab("accounting")}
                       className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "accounting" ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/10" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
                     >
@@ -1811,6 +1881,16 @@ export default function App() {
                       <div className="flex items-center gap-2">
                         <Plus className="w-4 h-4" />
                         <span>إضافة عميل يدوياً</span>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => selectTab("reps")}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "reps" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <UserCheck className="w-4 h-4 text-blue-500" />
+                        <span>دليل زملاء العمل ومتابعة الحالات 💼</span>
                       </div>
                     </button>
                   </>
@@ -2546,6 +2626,32 @@ export default function App() {
                         />
                       </div>
 
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-black text-slate-600 block flex justify-start">اسم المستخدم (إجباري للدخول):</label>
+                          <input
+                            type="text"
+                            required
+                            value={newEmpUsername}
+                            onChange={(e) => setNewEmpUsername(e.target.value)}
+                            placeholder="username"
+                            className="w-full text-xs rounded-xl border border-slate-250 px-3.5 py-3 bg-white text-slate-800 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 focus:outline-hidden font-mono font-bold"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-black text-slate-600 block flex justify-start">كلمة المرور (إجباري للدخول):</label>
+                          <input
+                            type="text"
+                            required
+                            value={newEmpPassword}
+                            onChange={(e) => setNewEmpPassword(e.target.value)}
+                            placeholder="password"
+                            className="w-full text-xs rounded-xl border border-slate-250 px-3.5 py-3 bg-white text-slate-800 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 focus:outline-hidden font-mono font-bold"
+                          />
+                        </div>
+                      </div>
+
                       <button
                         type="submit"
                         disabled={empActionLoading}
@@ -2616,6 +2722,387 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+              </motion.div>
+            )}
+
+            {activeTab === "reps" && (
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-6 text-right"
+                id="reps-dashboard"
+              >
+                {/* رأس الصفحة */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col md:flex-row items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2 justify-end">
+                      <span>دليل المناديب ومتابعة حالات العملاء والدردشة</span>
+                      <UserCheck className="w-5 h-5 text-blue-600" />
+                    </h3>
+                    <p className="text-xs text-slate-500">قم بمتابعة أداء كل مندوب، والاطلاع على عملائه، والدردشة المباشرة لحسم تعميد أو رفض كل عميل</p>
+                  </div>
+                  <div className="flex items-center gap-2 bg-blue-50/50 px-4 py-2.5 rounded-xl border border-blue-100">
+                    <span className="text-xs font-bold text-slate-700">إجمالي المناديب المرخصين:</span>
+                    <span className="font-black text-blue-600 font-mono text-sm">{employees.length} مناديب</span>
+                  </div>
+                </div>
+
+                {/* قائمة المناديب الحالية (كروت المناديب) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {employees.map((emp) => {
+                    const repName = emp["الاسم"] || "";
+                    // تجميع كافة شركات هذا المندوب من القائمة النشطة
+                    const allActiveComps = isManagerMode ? managerCompanies : companies;
+                    const repCompanies = allActiveComps.filter(c => {
+                      const repField = getSafeString(c["مسؤول المبيعات"]).trim() || getSafeString(c["المندوب"]).trim() || getSafeString(c["الموظف المرتبط"]).trim();
+                      return repField.toLowerCase() === repName.toLowerCase().trim();
+                    });
+
+                    const total = repCompanies.length;
+                    const approved = repCompanies.filter(c => ["تم التعميد", "معمد", "تم التنفيذ"].includes(getSafeString(c["الحالة"]))).length;
+                    const rejected = repCompanies.filter(c => getSafeString(c["الحالة"]) === "مرفوض").length;
+                    const pending = total - approved - rejected;
+
+                    return (
+                      <div 
+                        key={emp.id}
+                        className="bg-white border border-slate-200 rounded-2xl p-5 hover:border-blue-300 hover:shadow-lg transition-all duration-200 flex flex-col justify-between gap-4 animate-fadeIn"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between gap-2.5">
+                            <span className="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-black">
+                              {emp["القسم"] || "مبيعات"}
+                            </span>
+                            <div className="h-11 w-11 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center font-bold text-sm border border-blue-100 uppercase shrink-0">
+                              {repName.slice(0, 2)}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <h4 className="font-extrabold text-sm text-slate-800">{repName}</h4>
+                            <p className="text-[11px] text-slate-400 font-mono flex items-center gap-1 justify-end">
+                              <span>{emp["البريد الإلكتروني"] || "لا يوجد بريد"}</span>
+                              <Mail className="w-3 h-3 text-slate-400" />
+                            </p>
+                            {emp["الجوال"] && (
+                              <p className="text-[11px] text-slate-400 font-mono flex items-center gap-1 justify-end">
+                                <span>{emp["الجوال"]}</span>
+                                <Phone className="w-3 h-3 text-slate-400" />
+                              </p>
+                            )}
+                          </div>
+
+                          {/* مؤشرات الأرقام والعملاء */}
+                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+                            <div className="bg-emerald-50/50 border border-emerald-100 p-2 rounded-xl text-center">
+                              <span className="text-[9px] text-emerald-600 font-bold block">معمدين</span>
+                              <span className="text-xs font-black text-emerald-700 font-mono block mt-0.5">{approved}</span>
+                            </div>
+                            <div className="bg-rose-50/50 border border-rose-100 p-2 rounded-xl text-center">
+                              <span className="text-[9px] text-rose-600 font-bold block">مرفوضين</span>
+                              <span className="text-xs font-black text-rose-700 font-mono block mt-0.5">{rejected}</span>
+                            </div>
+                            <div className="bg-amber-50/50 border border-amber-100 p-2 rounded-xl text-center">
+                              <span className="text-[9px] text-amber-600 font-bold block">معلقة</span>
+                              <span className="text-xs font-black text-amber-700 font-mono block mt-0.5">{pending}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setSelectedRepForDetails(emp);
+                            setActiveChatCompanyId(null);
+                          }}
+                          className="w-full text-xs font-bold text-blue-600 bg-blue-50/50 hover:bg-blue-600 hover:text-white rounded-xl py-2.5 transition-all text-center border border-blue-100 cursor-pointer"
+                        >
+                          📂 فتح كرت المندوب ومتابعة عملائه ({total})
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {employees.length === 0 && (
+                    <div className="col-span-full bg-white border border-slate-200 rounded-2xl py-12 text-center text-xs text-slate-400 font-bold">
+                      لا يوجد أي مناديب مبيعات مسجلين حالياً لعرض كروتهم.
+                    </div>
+                  )}
+                </div>
+
+                {/* نافذة تفاصيل كرت المندوب والعملاء والدردشة */}
+                {selectedRepForDetails && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.99 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-white border-2 border-blue-200 rounded-2xl p-6 shadow-lg space-y-6 text-right"
+                    id="rep-details-card-view"
+                  >
+                    <div className="flex items-center justify-between border-b border-slate-150 pb-4">
+                      <button
+                        onClick={() => setSelectedRepForDetails(null)}
+                        className="text-xs font-bold text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-3.5 py-1.5 rounded-lg transition-all"
+                      >
+                        إغلاق الكرت ✕
+                      </button>
+                      <div className="flex items-center gap-2.5">
+                        <div className="space-y-0.5 text-right">
+                          <h4 className="font-extrabold text-sm text-slate-900">الملف العملياتي لـ: {selectedRepForDetails["الاسم"]}</h4>
+                          <p className="text-[11px] text-slate-500">متابعة كافة العملاء والدردشة المباشرة لحسم وتعميد الحالات</p>
+                        </div>
+                        <div className="h-10 w-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center font-bold text-xs border border-indigo-100">
+                          {selectedRepForDetails["الاسم"]?.slice(0, 2)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* قائمة عملاء المندوب وحالتهم بالتفصيل */}
+                    <div className="space-y-4">
+                      <h5 className="font-black text-xs text-slate-700 flex items-center gap-1.5 justify-end">
+                        <span>قائمة عملاء المندوب والحالات المرتبطة بهم:</span>
+                        <ClipboardList className="w-4 h-4 text-slate-500" />
+                      </h5>
+
+                      <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/50">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs text-right border-collapse">
+                            <thead>
+                              <tr className="bg-slate-100 text-slate-700 border-b border-slate-200 select-none">
+                                <th className="p-3.5 font-extrabold">كود الشركة</th>
+                                <th className="p-3.5 font-extrabold">اسم الشركة العميل</th>
+                                <th className="p-3.5 font-extrabold">المعرض المشارك به</th>
+                                <th className="p-3.5 font-extrabold">المدينة</th>
+                                <th className="p-3.5 font-extrabold">الأولوية</th>
+                                <th className="p-3.5 font-extrabold">الحالة الراهنة</th>
+                                <th className="p-3.5 font-extrabold text-center">الإجراءات والدردشة</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(() => {
+                                const repName = selectedRepForDetails["الاسم"] || "";
+                                const allActiveComps = isManagerMode ? managerCompanies : companies;
+                                const repCompanies = allActiveComps.filter(c => {
+                                  const repField = getSafeString(c["مسؤول المبيعات"]).trim() || getSafeString(c["المندوب"]).trim() || getSafeString(c["الموظف المرتبط"]).trim();
+                                  return repField.toLowerCase() === repName.toLowerCase().trim();
+                                });
+
+                                if (repCompanies.length === 0) {
+                                  return (
+                                    <tr>
+                                      <td colSpan={7} className="p-8 text-center text-slate-400 font-bold">
+                                        لا توجد شركات أو عملاء مسندين حالياً لهذا المندوب.
+                                      </td>
+                                    </tr>
+                                  );
+                                }
+
+                                return repCompanies.map((comp) => {
+                                  const compId = comp.id;
+                                  const status = getSafeString(comp["الحالة"]);
+                                  const isApproved = ["تم التعميد", "معمد", "تم التنفيذ"].includes(status);
+                                  const isRejected = status === "مرفوض";
+                                  const exhibitionField = getSafeString(comp["المعرض"]) || (comp["المعارض"] && Array.isArray(comp["المعارض"]) ? comp["المعارض"].join("، ") : "");
+
+                                  return (
+                                    <React.Fragment key={comp.id}>
+                                      <tr className="border-b border-slate-150 hover:bg-slate-100/50 transition-colors">
+                                        <td className="p-3.5 font-mono font-bold text-slate-800">{getSafeString(comp["كود الشركة"]) || "C-N/A"}</td>
+                                        <td className="p-3.5 font-black text-slate-900">{getSafeString(comp["اسم الشركة"] || comp["اسم الشركة العميل"])}</td>
+                                        <td className="p-3.5 font-semibold text-slate-600">{exhibitionField || "غير محدد"}</td>
+                                        <td className="p-3.5 text-slate-500">{getSafeString(comp["المدينة"])}</td>
+                                        <td className="p-3.5">
+                                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                            getSafeString(comp["الأولوية"]) === "عالية" ? "bg-rose-50 text-rose-700 border border-rose-100" : "bg-slate-100 text-slate-600"
+                                          }`}>
+                                            {getSafeString(comp["الأولوية"]) || "متوسطة"}
+                                          </span>
+                                        </td>
+                                        <td className="p-3.5">
+                                          {isApproved ? (
+                                            <span className="bg-emerald-105 text-emerald-800 border border-emerald-200 px-2 py-1 rounded-md text-[10px] font-black flex items-center gap-1 justify-center w-fit">
+                                              <span>معمد 🟢</span>
+                                            </span>
+                                          ) : isRejected ? (
+                                            <div className="space-y-1">
+                                              <span className="bg-rose-100 text-rose-800 border border-rose-200 px-2 py-1 rounded-md text-[10px] font-black flex items-center gap-1 justify-center w-fit">
+                                                <span>مرفوض 🔴</span>
+                                              </span>
+                                              {comp["سبب الرفض"] && (
+                                                <p className="text-[10px] text-rose-600 font-bold max-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap" title={comp["سبب الرفض"]}>
+                                                  السبب: {comp["سبب الرفض"]}
+                                                </p>
+                                              )}
+                                            </div>
+                                          ) : (
+                                            <span className="bg-amber-100 text-amber-800 border border-amber-200 px-2 py-1 rounded-md text-[10px] font-black flex items-center gap-1 justify-center w-fit">
+                                              <span>لم يعمد 🟡</span>
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="p-3.5 text-center">
+                                          <button
+                                            onClick={() => {
+                                              if (activeChatCompanyId === compId) {
+                                                setActiveChatCompanyId(null);
+                                              } else {
+                                                setActiveChatCompanyId(compId);
+                                                fetchChatMessages(compId);
+                                              }
+                                            }}
+                                            className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 justify-center mx-auto cursor-pointer ${
+                                              activeChatCompanyId === compId 
+                                                ? "bg-slate-800 text-white" 
+                                                : "bg-blue-600 hover:bg-blue-700 text-white shadow-xs"
+                                            }`}
+                                          >
+                                            <MessageSquare className="w-3.5 h-3.5" />
+                                            <span>{activeChatCompanyId === compId ? "إغلاق الدردشة" : "دردشة ومتابعة الحالة"}</span>
+                                          </button>
+                                        </td>
+                                      </tr>
+
+                                      {/* صف الدردشة المفتوحة */}
+                                      {activeChatCompanyId === compId && (
+                                        <tr>
+                                          <td colSpan={7} className="p-4 bg-slate-50 border-b border-slate-200">
+                                            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-inner space-y-4 max-w-3xl mx-auto text-right">
+                                              <div className="flex items-center justify-between border-b border-slate-100 pb-2 select-none">
+                                                <span className="text-[10px] text-slate-450 font-mono">ID: {compId}</span>
+                                                <h6 className="font-extrabold text-xs text-slate-800 flex items-center gap-1.5 justify-end">
+                                                  <span>متابعة العميل: {getSafeString(comp["اسم الشركة"] || comp["اسم الشركة العميل"])}</span>
+                                                  <MessageSquare className="w-4 h-4 text-blue-500" />
+                                                </h6>
+                                              </div>
+
+                                              {/* نافذة الرسائل */}
+                                              <div className="space-y-3.5 max-h-[250px] overflow-y-auto p-1.5 bg-slate-50 rounded-xl border border-slate-100 flex flex-col gap-2">
+                                                {chatLoading ? (
+                                                  <div className="flex items-center justify-center py-8 gap-2 text-slate-500">
+                                                    <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                                                    <span className="text-xs font-bold">جاري تحميل سجل المحادثة...</span>
+                                                  </div>
+                                                ) : chatMessages.length === 0 ? (
+                                                  <div className="text-center py-10 text-[11px] text-slate-400 font-bold">
+                                                    لا توجد رسائل متابعة مسجلة حالياً لهذا العميل. ابدأ كتابة أول رسالة لتوثيق تواصلك!
+                                                  </div>
+                                                ) : (
+                                                  chatMessages.map((msg, mIdx) => {
+                                                    const isMe = String(msg.sender).trim() === (isManagerMode ? "نبيل الزبير" : String(selectedRep).trim());
+                                                    return (
+                                                      <div 
+                                                        key={msg.id || mIdx}
+                                                        className={`flex flex-col gap-1 max-w-[85%] ${isMe ? "mr-auto items-start" : "ml-auto items-end"}`}
+                                                      >
+                                                        <span className="text-[9px] text-slate-450 font-bold px-1">{msg.sender}</span>
+                                                        <div className={`p-3 rounded-2xl text-xs leading-relaxed font-bold ${
+                                                          isMe 
+                                                            ? "bg-blue-600 text-white rounded-tl-none" 
+                                                            : "bg-slate-200 text-slate-800 rounded-tr-none border border-slate-300"
+                                                        }`}>
+                                                          {msg.message}
+                                                        </div>
+                                                        <span className="text-[8px] text-slate-400 font-mono px-1">
+                                                          {new Date(msg.timestamp).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}
+                                                        </span>
+                                                      </div>
+                                                    );
+                                                  })
+                                                )}
+                                              </div>
+
+                                              {/* حقل الإدخال والإرسال */}
+                                              <div className="space-y-3.5">
+                                                <div className="flex gap-2">
+                                                  <input
+                                                    type="text"
+                                                    value={newChatMessageText}
+                                                    onChange={(e) => setNewChatMessageText(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter") {
+                                                        sendChatMessage(compId);
+                                                      }
+                                                    }}
+                                                    placeholder="اكتب ملاحظات التواصل أو استفسار للمندوب هنا..."
+                                                    className="flex-1 text-xs rounded-xl border border-slate-250 px-3.5 py-2.5 bg-white text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 font-bold"
+                                                  />
+                                                  <button
+                                                    onClick={() => sendChatMessage(compId)}
+                                                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                                                  >
+                                                    <Save className="w-3.5 h-3.5" />
+                                                    <span>إرسال</span>
+                                                  </button>
+                                                </div>
+
+                                                {/* أزرار الإجراءات الحاسمة لإغلاق الحالة مع سبب الرفض */}
+                                                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
+                                                  <span className="text-[10px] text-slate-450 font-bold">قرارات حسم حالة العميل:</span>
+                                                  
+                                                  <div className="flex items-center gap-2 flex-wrap">
+                                                    {/* زر التعميد المباشر */}
+                                                    <button
+                                                      onClick={async () => {
+                                                        if (confirm(`هل أنت متأكد من حسم وإغلاق حالة العميل بالتعميد والاعتماد النهائي؟`)) {
+                                                          await sendChatMessage(compId, undefined, "🟢 تم إغلاق الحالة واعتماد العميل بالتعميد الموثق بنجاح.", "تم التعميد");
+                                                        }
+                                                      }}
+                                                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                                                    >
+                                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                                      <span>🟢 إغلاق وتعميد العميل</span>
+                                                    </button>
+
+                                                    {/* زر الرفض مع كتابة سبب الرفض */}
+                                                    <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-200 p-1.5 rounded-xl">
+                                                      <input
+                                                        type="text"
+                                                        value={rejectionReasonInput[String(compId)] || ""}
+                                                        onChange={(e) => setRejectionReasonInput({
+                                                          ...rejectionReasonInput,
+                                                          [String(compId)]: e.target.value
+                                                        })}
+                                                        placeholder="أدخل سبب الرفض الإجباري..."
+                                                        className="text-[11px] rounded-lg border border-rose-250 px-2 py-1.5 bg-white text-slate-800 focus:outline-hidden font-bold w-[160px]"
+                                                      />
+                                                      <button
+                                                        onClick={async () => {
+                                                          const reason = rejectionReasonInput[String(compId)]?.trim();
+                                                          if (!reason) {
+                                                            alert("الرجاء كتابة سبب الرفض أولاً لحسم القرار.");
+                                                            return;
+                                                          }
+                                                          if (confirm(`هل أنت متأكد من إغلاق ورفض ملف العميل للأسباب المذكورة؟`)) {
+                                                            await sendChatMessage(compId, undefined, `🔴 تم إغلاق الملف برفض العميل بسبب: ${reason}`, "مرفوض", reason);
+                                                            // تفريغ المدخل
+                                                            setRejectionReasonInput({
+                                                              ...rejectionReasonInput,
+                                                              [String(compId)]: ""
+                                                            });
+                                                          }
+                                                        }}
+                                                        className="bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-[11px] px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all cursor-pointer"
+                                                      >
+                                                        <X className="w-3 h-3" />
+                                                        <span>🔴 إغلاق ورفض العميل</span>
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </React.Fragment>
+                                  );
+                                });
+                              })()}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
               </motion.div>
             )}
 
@@ -4038,6 +4525,32 @@ export default function App() {
                         placeholder="05xxxxxxxx"
                         className="w-full text-xs rounded-xl border border-slate-250 px-3 py-2.5 bg-white text-slate-800 focus:outline-hidden font-mono"
                       />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-black text-slate-600 block">اسم المستخدم (إجباري للدخول):</label>
+                        <input
+                          type="text"
+                          required
+                          value={newEmpUsername}
+                          onChange={(e) => setNewEmpUsername(e.target.value)}
+                          placeholder="username"
+                          className="w-full text-xs rounded-xl border border-slate-250 px-3 py-2.5 bg-white text-slate-800 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 focus:outline-hidden font-mono font-bold"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-black text-slate-600 block">كلمة المرور (إجباري للدخول):</label>
+                        <input
+                          type="text"
+                          required
+                          value={newEmpPassword}
+                          onChange={(e) => setNewEmpPassword(e.target.value)}
+                          placeholder="password"
+                          className="w-full text-xs rounded-xl border border-slate-250 px-3 py-2.5 bg-white text-slate-800 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 focus:outline-hidden font-mono font-bold"
+                        />
+                      </div>
                     </div>
 
                     <button

@@ -257,7 +257,7 @@ let mockCompanies: any[] = [
 ];
 
 // سجلات المتابعات للتجربة المحلية
-let mockFollowups = [
+let mockFollowups: any[] = [
   {
     id: 1,
     "الشركة المرتبطة": 2,
@@ -286,6 +286,35 @@ const FOLLOWUPS_FILE = path.join(process.cwd(), "followups-db.json");
 const EMPLOYEES_FILE = path.join(process.cwd(), "employees-db.json");
 const QUOTATIONS_FILE = path.join(process.cwd(), "quotations-db.json");
 const SETTINGS_FILE = path.join(process.cwd(), "settings-db.json");
+const CHATS_FILE = path.join(process.cwd(), "chats-db.json");
+
+let mockChats: any[] = [];
+try {
+  if (fs.existsSync(CHATS_FILE)) {
+    mockChats = JSON.parse(fs.readFileSync(CHATS_FILE, "utf8"));
+  } else {
+    // رسائل افتراضية لتبدأ المحادثات بشكل ممتع وتوضيحي
+    mockChats = [
+      {
+        id: "chat-1",
+        companyId: 1,
+        sender: "المدير العام",
+        message: "أهلاً ومرحباً! يرجى المتابعة العاجلة مع هذا العميل لإنهاء التعميد لمعرض الخمسة الكبار.",
+        timestamp: new Date(Date.now() - 3600000 * 24).toISOString(),
+      },
+      {
+        id: "chat-2",
+        companyId: 1,
+        sender: "مؤيدة",
+        message: "أهلاً يا فندم، تواصلت مع العميل اليوم وأرسلت له العرض المالي، والعميل مهتم جداً وسيقوم بالرد قريباً.",
+        timestamp: new Date(Date.now() - 3600000 * 12).toISOString(),
+      }
+    ];
+    fs.writeFileSync(CHATS_FILE, JSON.stringify(mockChats, null, 2), "utf8");
+  }
+} catch (e: any) {
+  console.error("خطأ في قراءة ملف دردشة المتابعة:", e.message);
+}
 
 // تحميل السجلات المحفوظة مسبقاً لمنع أي فقدان للبيانات
 try {
@@ -423,6 +452,9 @@ const saveFollowupsLocal = () => {
 };
 const saveEmployeesLocal = () => {
   try { fs.writeFileSync(EMPLOYEES_FILE, JSON.stringify(mockEmployeesList, null, 2), "utf8"); } catch(e){}
+};
+const saveChatsLocal = () => {
+  try { fs.writeFileSync(CHATS_FILE, JSON.stringify(mockChats, null, 2), "utf8"); } catch(e){}
 };
 const saveQuotationsLocal = () => {
   try { fs.writeFileSync(QUOTATIONS_FILE, JSON.stringify(mockQuotations, null, 2), "utf8"); } catch(e){}
@@ -1293,15 +1325,31 @@ https://baserow.io/database/${dbId}/table/${tblEmp}?grid-search=${encodeURICompo
     }
 
     const data: any = await response.json();
+    
+    // حفظ اسم المستخدم وكلمة المرور محلياً لمطابقتها فوراً عند تسجيل الدخول
+    const empUser = req.body["اسم المستخدم"] || req.body["username"] || empName.toLowerCase().replace(/\s+/g, "");
+    const empPass = req.body["كلمة المرور"] || req.body["password"] || "123456";
+    
+    const localEmp = {
+      id: data.id,
+      "الاسم": empName,
+      "البريد الإلكتروني": empEmail,
+      "القسم": empDept || "المبيعات",
+      "الجوال": empPhone || "",
+      "اسم المستخدم": empUser,
+      "كلمة المرور": empPass
+    };
+    
+    // التأكد من عدم تكراره محلياً
+    mockEmployeesList = mockEmployeesList.filter((e) => e.id !== data.id && String(e["البريد الإلكتروني"]) !== String(empEmail));
+    mockEmployeesList.push(localEmp);
+    saveEmployeesLocal();
+
     return res.json({
       success: true,
-      employee: {
-        id: data.id,
-        "الاسم": data["الاسم"] || empName,
-        "البريد الإلكتروني": empEmail
-      },
+      employee: localEmp,
       whatsappUrl,
-      message: "تم إضافة المندوب في جدول Baserow الحقيقي بنجاح وجاري إرسال الإشعار لواتساب المدير."
+      message: "تم إضافة المندوب في جدول Baserow والترخيص محلياً بنجاح! 🟢"
     });
   } catch (error: any) {
     console.error("خطأ أثناء إضافة موظف في Baserow:", error.message);
@@ -2240,6 +2288,89 @@ app.get("/api/followups", async (req, res) => {
     const filtered = mockFollowups.filter((f) => f["الشركة المرتبطة"] === comIdNum);
     return res.json(filtered);
   }
+});
+
+
+// ==========================================
+// 1.6. روابط دردشة المتابعة لكل عميل مع المندوب
+// ==========================================
+
+// جلب رسائل الدردشة الخاصة بالعميل ومتابعته
+app.get("/api/companies/:id/chat", (req, res) => {
+  const companyId = req.params.id;
+  const filtered = mockChats.filter(
+    (c) => String(c.companyId) === String(companyId)
+  );
+  return res.json(filtered);
+});
+
+// إرسال رسالة دردشة ومتابعة جديدة للعميل وتحديث حالته تلقائياً (تعميد أو رفض)
+app.post("/api/companies/:id/chat", (req, res) => {
+  const companyId = req.params.id;
+  const { sender, message, statusUpdate, rejectionReason } = req.body;
+
+  if (!sender || !message) {
+    return res.status(400).json({ error: "اسم المرسل ومحتوى الرسالة حقول إجبارية" });
+  }
+
+  const newMessage = {
+    id: `chat-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    companyId: isNaN(Number(companyId)) ? companyId : Number(companyId),
+    sender,
+    message,
+    statusUpdate,
+    rejectionReason,
+    timestamp: new Date().toISOString()
+  };
+
+  mockChats.push(newMessage);
+  saveChatsLocal();
+
+  // إذا كانت الرسالة تتضمن تحديثاً لحالة العميل (تعميد أو رفض)
+  if (statusUpdate) {
+    const comIdNum = isNaN(Number(companyId)) ? companyId : Number(companyId);
+    const companyIndex = mockCompanies.findIndex((c) => c.id === comIdNum || String(c.id) === String(companyId));
+    if (companyIndex !== -1) {
+      if (statusUpdate === "تم التعميد") {
+        mockCompanies[companyIndex]["الحالة"] = "تم التعميد";
+        mockCompanies[companyIndex]["آخر تواصل"] = new Date().toISOString().split("T")[0];
+        
+        // أيضاً إنشاء سجل متابعة رسمي
+        const newFollowup = {
+          id: mockFollowups.length + 1,
+          "الشركة المرتبطة": comIdNum,
+          "الموظف المرتبط": sender,
+          "تاريخ المتابعة": new Date().toISOString().split("T")[0],
+          "الحالة": "تم التعميد",
+          "الملاحظات": "تم تعميد العميل وإغلاق حالته بنجاح عبر لوحة دردشة المتابعة المباشرة.",
+          "المصدر": "دردشة المتابعة"
+        };
+        mockFollowups.push(newFollowup);
+        saveFollowupsLocal();
+
+      } else if (statusUpdate === "مرفوض") {
+        mockCompanies[companyIndex]["الحالة"] = "مرفوض";
+        mockCompanies[companyIndex]["سبب الرفض"] = rejectionReason || "لم يذكر السبب";
+        mockCompanies[companyIndex]["آخر تواصل"] = new Date().toISOString().split("T")[0];
+        
+        // أيضاً إنشاء سجل متابعة رسمي
+        const newFollowup = {
+          id: mockFollowups.length + 1,
+          "الشركة المرتبطة": comIdNum,
+          "الموظف المرتبط": sender,
+          "تاريخ المتابعة": new Date().toISOString().split("T")[0],
+          "الحالة": "مرفوض",
+          "الملاحظات": `تم رفض العميل وإغلاق حالته لسبب: ${rejectionReason || "لم يذكر السبب"} عبر لوحة دردشة المتابعة.`,
+          "المصدر": "دردشة المتابعة"
+        };
+        mockFollowups.push(newFollowup);
+        saveFollowupsLocal();
+      }
+      saveCompaniesLocal();
+    }
+  }
+
+  return res.json({ success: true, message: newMessage });
 });
 
 
