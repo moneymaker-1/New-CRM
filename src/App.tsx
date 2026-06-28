@@ -38,9 +38,12 @@ import {
   Bell,
   MessageSquare,
   CloudLightning,
+  Cloud,
   ExternalLink,
   Save,
-  Sparkles
+  Sparkles,
+  Cpu,
+  CheckCheck
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import * as XLSX from "xlsx";
@@ -198,10 +201,17 @@ export default function App() {
 
   // حالات فتح لوحة الإضافة / الاستيراد
   const [showAddPanel, setShowAddPanel] = useState(false);
-  const [importTab, setImportTab] = useState<"excel" | "manual" | "google-sheets" | "ai-clean">("excel");
+  const [importTab, setImportTab] = useState<"excel" | "manual" | "google-sheets" | "ai-clean" | "excel-ai">("excel");
   const [aiInputText, setAiInputText] = useState("");
   const [isCleaningAi, setIsCleaningAi] = useState(false);
   const [aiCleanResult, setAiCleanResult] = useState<any[]>([]);
+
+  // حالات الاستيراد الذكي بذكاء اصطناعي متعدد الصفحات (AI Excel Multi-Sheet)
+  const [excelSheets, setExcelSheets] = useState<{ sheetName: string; rows: any[] }[]>([]);
+  const [aiCleanedCompanies, setAiCleanedCompanies] = useState<any[]>([]);
+  const [isProcessingSheetsAI, setIsProcessingSheetsAI] = useState(false);
+  const [editingAiCompanyId, setEditingAiCompanyId] = useState<string | null>(null);
+  const [editingAiCompanyFields, setEditingAiCompanyFields] = useState<any>(null);
 
   // حالات تكامل قوقل شيت (Google Sheets Integration)
   const [googleUser, setGoogleUser] = useState<any>(null);
@@ -305,6 +315,38 @@ export default function App() {
   const [repEmail, setRepEmail] = useState("");
   const [newEmpUsername, setNewEmpUsername] = useState("");
   const [newEmpPassword, setNewEmpPassword] = useState("");
+
+  // توليد اسم مستخدم وكلمة مرور للمندوب تلقائياً لتفادي مشكلة خطأ عدم تعبئة الحقول الإجبارية
+  useEffect(() => {
+    if (newEmpName.trim()) {
+      if (!newEmpUsername) {
+        // توليد اسم مستخدم بسيط يعتمد على الاسم المدخل أو توليد يوزر عشوائي
+        const englishOnly = newEmpName
+          .trim()
+          .toLowerCase()
+          .replace(/[^\w\s]/gi, '')
+          .replace(/\s+/g, '')
+          .slice(0, 8);
+        const randomNum = Math.floor(100 + Math.random() * 900);
+        const suggested = englishOnly ? `${englishOnly}${randomNum}` : `rep${randomNum}`;
+        setNewEmpUsername(suggested);
+      }
+      if (!newEmpPassword) {
+        // توليد كلمة مرور عشوائية سهلة
+        const randomPass = Math.floor(100000 + Math.random() * 900000).toString();
+        setNewEmpPassword(randomPass);
+      }
+    }
+  }, [newEmpName]);
+
+  // حماية إضافية وتوجيه تلقائي للمندوب عند محاولة الدخول لتبويبات مغلقة
+  useEffect(() => {
+    if (!isManagerMode) {
+      if (importTab === "ai-clean" || importTab === "excel-ai") {
+        setImportTab("manual");
+      }
+    }
+  }, [isManagerMode, importTab]);
 
   // احتساب أفضل 5 عملاء مستنداً إلى التعاميد وعروض الأسعار وحجم العقد
   const topClients = useMemo(() => {
@@ -893,6 +935,162 @@ export default function App() {
 
   const handleExcelImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     handleImportExcel(e);
+  };
+
+  // دالة قراءة ملف إكسل بكافة صفحاته الداخلية الـ 7
+  const handleUploadMultiSheetExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setLoading(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const workbook = XLSX.read(bstr, { type: "binary" });
+        
+        const sheetsData: { sheetName: string; rows: any[] }[] = [];
+        workbook.SheetNames.forEach((sheetName) => {
+          const worksheet = workbook.Sheets[sheetName];
+          const rows = XLSX.utils.sheet_to_json<any>(worksheet);
+          if (rows.length > 0) {
+            sheetsData.push({ sheetName, rows });
+          }
+        });
+
+        if (sheetsData.length === 0) {
+          alert("الملف فارغ ولا يحتوي على أي بيانات في صفحاته الداخلية.");
+          setLoading(false);
+          return;
+        }
+
+        setExcelSheets(sheetsData);
+        setAiCleanedCompanies([]); // تصفير النتائج السابقة لتهيئة الواجهة الجديدة
+        alert(`تمت قراءة ملف الإكسل بنجاح! 📂\nتم العثور على ${sheetsData.length} صفحات داخلية جاهزة للمعالجة والتنظيف بالذكاء الاصطناعي.`);
+      } catch (err: any) {
+        console.error("خطأ قراءة ملف الإكسل متعدد الصفحات:", err);
+        alert("حدث خطأ أثناء معالجة وقراءة ملف الإكسل المرفوع.");
+      } finally {
+        setLoading(false);
+        if (e.target) e.target.value = "";
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // دالة إرسال كافة الصفحات للذكاء الاصطناعي لاستخلاصها وتنظيفها وترتيبها
+  const handleProcessMultiSheetAI = async () => {
+    if (excelSheets.length === 0) {
+      alert("الرجاء اختيار ورفع ملف إكسل أولاً.");
+      return;
+    }
+
+    setIsProcessingSheetsAI(true);
+    try {
+      const response = await fetch("/api/ai/clean-excel-sheets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sheetsData: excelSheets,
+          salesRep: selectedRep
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          setAiCleanedCompanies(result.companies);
+          alert(`تمت تصفية وتنظيم صفحات الإكسل بنجاح بواسطة الذكاء الاصطناعي! 🤖✨\nتم استخراج ${result.companies.length} عميل فريد، يرجى مراجعة القائمة واتخاذ الإجراءات الملائمة (الموافقة، الرفض، التعديل).`);
+        } else {
+          alert("فشل في معالجة وتطهير البيانات بالذكاء الاصطناعي.");
+        }
+      } else {
+        const err = await response.json();
+        alert(err.error || "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي لتطهير الملف.");
+      }
+    } catch (error: any) {
+      console.error("خطأ الاتصال بالذكاء الاصطناعي:", error);
+      alert("حدث خطأ غير متوقع أثناء معالجة ملف الإكسل.");
+    } finally {
+      setIsProcessingSheetsAI(false);
+    }
+  };
+
+  // دالة تغيير حالة الموافقة/الرفض لشركة مستخرجة بالذكاء الاصطناعي
+  const toggleCompanyApproval = (id: string) => {
+    setAiCleanedCompanies(prev => prev.map(c => c.id === id ? { ...c, approved: !c.approved } : c));
+  };
+
+  // دالة بدء تعديل بيانات عميل مستخرج بالذكاء الاصطناعي
+  const startEditingAiCompany = (comp: any) => {
+    setEditingAiCompanyId(comp.id);
+    setEditingAiCompanyFields({ ...comp });
+  };
+
+  // دالة حفظ التعديلات اليدوية لعميل مستخرج بالذكاء الاصطناعي
+  const saveEditingAiCompany = () => {
+    if (!editingAiCompanyFields) return;
+    setAiCleanedCompanies(prev => prev.map(c => c.id === editingAiCompanyFields.id ? { ...editingAiCompanyFields } : c));
+    setEditingAiCompanyId(null);
+    setEditingAiCompanyFields(null);
+  };
+
+  // دالة تنزيل ملف إكسل المطهر بعد المراجعة والاعتمادات
+  const handleDownloadCleanedExcel = () => {
+    const approvedList = aiCleanedCompanies.filter(c => c.approved).map(c => {
+      // إزالة حقول الواجهة الداخلية قبل التصدير والتحميل للعميل
+      const { id, approved, ...rest } = c;
+      return rest;
+    });
+
+    if (approvedList.length === 0) {
+      alert("لا توجد شركات معتمدة لتنزيلها حالياً كملف إكسل.");
+      return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(approvedList);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "العملاء المعتمدين والمطهرين");
+    worksheet["!dir"] = "rtl"; // ليكون الإكسل بالاتجاه العربي الصحيح
+    XLSX.writeFile(workbook, "تقرير_عملاء_إكسبو_تايم_المطهر_بالذكاء_الاصطناعي.xlsx");
+  };
+
+  // دالة استيراد وتأكيد إدخال العملاء المعتمدين دفعة واحدة لقاعدة بيانات الـ CRM
+  const handleImportApprovedCompanies = async () => {
+    const approvedList = aiCleanedCompanies.filter(c => c.approved);
+    if (approvedList.length === 0) {
+      alert("الرجاء اعتماد وموافقة شركة واحدة على الأقل للاستيراد.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch("/api/companies/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companies: approvedList }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(`تمت مزامنة واستيراد عدد ${result.count || approvedList.length} عميل معتمد بنجاح إلى قاعدة بيانات الـ CRM ومزامنتهم مع Baserow! 🚀🟢`);
+        setAiCleanedCompanies([]);
+        setExcelSheets([]);
+        if (isManagerMode) {
+          fetchAllManagerData();
+        } else {
+          fetchCompanies(selectedRep);
+        }
+      } else {
+        const err = await response.json();
+        alert(err.error || "حدث خطأ أثناء مزامنة واستيراد الشركات المعتمدة.");
+      }
+    } catch (error: any) {
+      console.error("خطأ استيراد المعتمدين للـ CRM:", error);
+      alert("حدث خطأ أثناء مزامنة وإدخال البيانات المعتمدة.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   // تحميل إعدادات البيئة والموظفين وعروض الأسعار عند بدء التشغيل
@@ -1931,313 +2129,396 @@ export default function App() {
                   <span>{successMsg}</span>
                 </motion.div>
               )}
-            {/* جـ. لوحة إضافة بيانات جديدة واستيراد إكسل المتكاملة والأنيقة */}
-            <AnimatePresence>
-              {activeTab === "import" && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm overflow-hidden"
-                >
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-                    <div className="flex items-center gap-2">
-                      <Plus className="w-5 h-5 text-blue-600" />
-                      <h3 className="font-bold text-sm text-slate-900">إضافة عملاء جدد لقاعدة البيانات</h3>
-                    </div>
-                    {/* تبديل التاب */}
-                    <div className="flex gap-1.5 bg-slate-100 p-1 rounded-lg flex-wrap">
-                      <button
-                        onClick={() => setImportTab("excel")}
-                        className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${importTab === "excel" ? "bg-white text-blue-600 shadow-xs" : "text-slate-500"}`}
-                      >
-                        استيراد ملف إكسل (XLSX)
-                      </button>
-                      <button
-                        onClick={() => setImportTab("google-sheets")}
-                        className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${importTab === "google-sheets" ? "bg-white text-blue-600 shadow-xs" : "text-slate-500"}`}
-                      >
-                        ربط ومزامنة Google Sheets 📊
-                      </button>
-                      <button
-                        onClick={() => setImportTab("manual")}
-                        className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${importTab === "manual" ? "bg-white text-blue-600 shadow-xs" : "text-slate-500"}`}
-                      >
-                        إدخال عميل يدوي جديد
-                      </button>
-                      <button
-                        onClick={() => setImportTab("ai-clean")}
-                        className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${importTab === "ai-clean" ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs font-black animate-pulse" : "text-slate-500 hover:text-indigo-650"}`}
-                      >
-                        تنظيم وتطهير بالذكاء الاصطناعي ✨
-                      </button>
-                    </div>
-                  </div>
 
-                  {importTab === "excel" && (
-                    /* واجهة سحب وإفلات لملف الإكسل */
-                    <div className="space-y-4 text-center">
-                      {importProgress ? (
-                        <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-8 text-center space-y-4 shadow-sm max-w-2xl mx-auto">
-                          <div className="flex items-center justify-between text-xs font-bold text-blue-900">
-                            <span className="flex items-center gap-1.5">
-                              <span className="inline-block h-2.5 w-2.5 rounded-full bg-blue-600 animate-pulse" />
-                              جاري معالجة ورفع جهات الاتصال لقاعدة البيانات...
-                            </span>
-                            <span className="font-mono text-sm bg-blue-600 text-white px-2 py-0.5 rounded-lg">{importProgress.percentage}%</span>
-                          </div>
-                          <div className="w-full bg-slate-200 rounded-full h-3.5 overflow-hidden">
-                            <div 
-                              className="bg-blue-600 h-full rounded-full transition-all duration-350 ease-out" 
-                              style={{ width: `${importProgress.percentage}%` }}
-                            />
-                          </div>
-                          <p className="text-xs text-slate-700 leading-relaxed font-bold">
-                            تمت مزامنة ورفع <span className="font-mono text-blue-800 text-[13px] bg-slate-100 px-1.5 py-0.5 rounded">{importProgress.current.toLocaleString()}</span> جهة اتصال من أصل <span className="font-mono text-blue-800 text-[13px] bg-slate-100 px-1.5 py-0.5 rounded">{importProgress.total.toLocaleString()}</span> في الملف.
-                          </p>
-                          <p className="text-[10px] text-slate-500 animate-pulse">
-                            ⚠️ الرجاء عدم إغلاق بورتال مبيعات وعملاء ExpoTime حتى تكتمل عملية الاستيراد بنجاح.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="border-4 border-dashed border-slate-200 hover:border-blue-300 rounded-2xl p-8 transition-colors relative flex flex-col items-center justify-center bg-slate-50/50">
-                          <Upload className="w-12 h-12 text-blue-500 mb-3" />
-                          <h4 className="font-extrabold text-sm text-slate-800">اسحب وأفلت ملف الـ Excel هنا</h4>
-                          <p className="text-[11px] text-slate-400 mt-1 max-w-sm">
-                            يرجى اختيار ملف بامتداد (.xlsx) أو (.csv). سيتعرف النظام تلقائياً على الأعمدة العربية مثل "اسم الشركة" و "الجوال" ويقوم بمزامنتها مباشرة.
-                          </p>
-                          
-                          <label className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer inline-flex items-center gap-1">
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>تصفح ملفات جهازك</span>
-                            <input 
-                              type="file" 
-                              accept=".xlsx, .csv" 
-                              onChange={handleExcelImport} 
-                              className="hidden" 
-                            />
-                          </label>
-                        </div>
-                      )}
-
-                      <div className="bg-amber-50 border border-amber-250 rounded-xl p-4 text-right text-[11px] text-amber-900 leading-relaxed max-w-2xl mx-auto space-y-1">
-                        <span className="font-bold block text-amber-950">💡 صيغة الملف المثالية لضمان المزامنة في Baserow:</span>
-                        <p>
-                          يجب أن تشتمل الأعمدة الرئيسية على التالي كحد أدنى وتتواءم مسمياتها: 
-                          <span className="underline font-bold px-1 text-blue-800">"اسم الشركة"</span> أو "الاسم" • 
-                          <span className="underline font-bold px-1 text-blue-800">"الجوال الرئيسي"</span> أو "الجوال" • 
-                          <span className="underline font-bold px-1 text-blue-800">"البريد الإلكتروني"</span> أو "البريد" • 
-                          <span className="underline font-bold px-1 text-blue-800">"النشاط"</span>.
-                        </p>
+              {/* جـ. لوحة إضافة بيانات جديدة واستيراد إكسل المتكاملة والأنيقة */}
+              <AnimatePresence>
+                {activeTab === "import" && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm overflow-hidden"
+                  >
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                      <div className="flex items-center gap-2">
+                        <Plus className="w-5 h-5 text-blue-600" />
+                        <h3 className="font-bold text-sm text-slate-900">إضافة عملاء جدد لقاعدة البيانات</h3>
+                      </div>
+                      {/* تبديل التاب */}
+                      <div className="flex gap-1.5 bg-slate-100 p-1 rounded-lg flex-wrap">
+                        <button
+                          onClick={() => setImportTab("excel")}
+                          className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${importTab === "excel" ? "bg-white text-blue-600 shadow-xs" : "text-slate-500"}`}
+                        >
+                          استيراد ملف إكسل (XLSX)
+                        </button>
+                        <button
+                          onClick={() => setImportTab("google-sheets")}
+                          className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${importTab === "google-sheets" ? "bg-white text-blue-600 shadow-xs" : "text-slate-500"}`}
+                        >
+                          {isManagerMode ? "ربط ومزامنة Google Sheets 📊" : "سحابة المزامنة المعتمدة ☁️"}
+                        </button>
+                        <button
+                          onClick={() => setImportTab("manual")}
+                          className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${importTab === "manual" ? "bg-white text-blue-600 shadow-xs" : "text-slate-500"}`}
+                        >
+                          إدخال عميل يدوي جديد
+                        </button>
+                        {isManagerMode && (
+                          <>
+                            <button
+                              onClick={() => setImportTab("ai-clean")}
+                              className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${importTab === "ai-clean" ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs font-black animate-pulse" : "text-slate-500 hover:text-indigo-650"}`}
+                            >
+                              تنظيم وتطهير بالذكاء الاصطناعي ✨
+                            </button>
+                            <button
+                              onClick={() => setImportTab("excel-ai")}
+                              className={`px-3 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${importTab === "excel-ai" ? "bg-indigo-600 text-white shadow-xs font-extrabold" : "text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-2 rounded-md"}`}
+                            >
+                              استيراد إكسل ذكي (متعدد الصفحات) 🤖📊
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
-                  )}
 
-                  {importTab === "google-sheets" && (
-                    /* واجهة ربط وتكامل جوجل شيت */
-                    <div className="space-y-6 text-right">
-                      <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm flex items-center justify-center">
-                            {/* Google Logo */}
-                            <svg className="w-7 h-7" viewBox="0 0 24 24">
-                              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22c-.81-2.63-.81-3.07-.81-3.63z" />
-                              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                            </svg>
-                          </div>
-                          <div>
-                            <h4 className="font-extrabold text-sm text-slate-800 font-sans">حالة الربط مع حساب Google Workspace</h4>
-                            <p className="text-[11px] text-slate-500 mt-0.5">
-                              {googleUser ? `متصل بالبريد: ${googleUser.email}` : "قم بتسجيل الدخول لتمكين ربط جداول البيانات وقراءة ملفاتك"}
+                    {importTab === "excel" && (
+                      /* واجهة سحب وإفلات لملف الإكسل */
+                      <div className="space-y-4 text-center">
+                        {importProgress ? (
+                          <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-8 text-center space-y-4 shadow-sm max-w-2xl mx-auto">
+                            <div className="flex items-center justify-between text-xs font-bold text-blue-900">
+                              <span className="flex items-center gap-1.5">
+                                <span className="inline-block h-2.5 w-2.5 rounded-full bg-blue-600 animate-pulse" />
+                                جاري معالجة ورفع جهات الاتصال لقاعدة البيانات...
+                              </span>
+                              <span className="font-mono text-sm bg-blue-600 text-white px-2 py-0.5 rounded-lg">{importProgress.percentage}%</span>
+                            </div>
+                            <div className="w-full bg-slate-200 rounded-full h-3.5 overflow-hidden">
+                              <div 
+                                className="bg-blue-600 h-full rounded-full transition-all duration-350 ease-out" 
+                                style={{ width: `${importProgress.percentage}%` }}
+                              />
+                            </div>
+                            <p className="text-xs text-slate-700 leading-relaxed font-bold">
+                              تمت مزامنة ورفع <span className="font-mono text-blue-800 text-[13px] bg-slate-100 px-1.5 py-0.5 rounded">{importProgress.current.toLocaleString()}</span> جهة اتصال من أصل <span className="font-mono text-blue-800 text-[13px] bg-slate-100 px-1.5 py-0.5 rounded">{importProgress.total.toLocaleString()}</span> في الملف.
+                            </p>
+                            <p className="text-[10px] text-slate-500 animate-pulse">
+                              ⚠️ الرجاء عدم إغلاق بورتال مبيعات وعملاء ExpoTime حتى تكتمل عملية الاستيراد بنجاح.
                             </p>
                           </div>
-                        </div>
-
-                        <div>
-                          {googleUser ? (
-                            <button
-                              onClick={handleGoogleLogout}
-                              disabled={isGoogleLoading}
-                              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
-                            >
-                              <LogOut className="w-3.5 h-3.5" />
-                              <span>قطع الاتصال بحساب Google</span>
-                            </button>
-                          ) : (
-                            <button
-                              onClick={handleGoogleSignIn}
-                              disabled={isGoogleLoading}
-                              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold rounded-xl shadow-md shadow-blue-600/10 transition-all cursor-pointer flex items-center gap-2"
-                            >
-                              <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                              </svg>
-                              <span>تسجيل الدخول الآمن بـ Google</span>
-                            </button>
-                          )}
-                        </div>
-
-                        {/* دليل حل مشكلة حظر الوصول 403 لـ Google Sheets */}
-                        <div className="mt-6 bg-amber-50 border border-amber-200 rounded-2xl p-5 text-right space-y-3.5">
-                          <h4 className="text-xs font-black text-amber-800 flex items-center gap-2">
-                            <span>⚠️ دليل تجاوز وحل مشكلة الحظر (Access Blocked: 403) لمزامنة Google Sheets</span>
-                          </h4>
-                          <p className="text-[11px] leading-relaxed text-amber-900">
-                            عند استخدام الحساب <strong className="font-sans text-xs">dataexpotime@gmail.com</strong> للمرة الأولى، قد تواجه رسالة منع من Google بسبب عدم اكتمال فحص التطبيق التجريبي <span className="font-sans text-xs">gen-lang-client-0569030195</span>. يمكنك حلها فوراً بأحد الحلين التاليين:
-                          </p>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-                            <div className="bg-white p-3.5 rounded-xl border border-amber-100 space-y-1.5">
-                              <span className="text-[11px] font-bold text-amber-900 block border-b border-amber-50 pb-1">💡 الحل الأول (تفعيل وضع الإنتاج - لجميع المستخدمين):</span>
-                              <ol className="text-[10px] text-slate-600 list-decimal list-inside space-y-1">
-                                <li>افتح <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" className="text-blue-600 underline font-semibold">شاشة موافقة OAuth في Google Cloud Console</a> للمشروع <span className="font-sans text-[10px]">gen-lang-client-0569030195</span>.</li>
-                                <li>ضمن قسم <strong>Publishing status</strong> (حالة النشر)، اضغط على زر <strong>Publish App</strong> لتحويله إلى وضع الإنتاج.</li>
-                                <li>عند تسجيل الدخول بعد ذلك، انقر على <strong>خيارات متقدمة (Advanced)</strong> ثم <strong>الانتقال إلى التطبيق (Go to app - unsafe)</strong> وسيتم الربط فوراً!</li>
-                              </ol>
-                            </div>
-                            <div className="bg-white p-3.5 rounded-xl border border-amber-100 space-y-1.5">
-                              <span className="text-[11px] font-bold text-amber-900 block border-b border-amber-50 pb-1">💡 الحل الثاني (إضافة كـ مستخدم تجريبي):</span>
-                              <ol className="text-[10px] text-slate-600 list-decimal list-inside space-y-1">
-                                <li>في نفس <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" className="text-blue-600 underline font-semibold">شاشة موافقة OAuth</a>، انزل لأسفل حتى تصل إلى قسم <strong>Test Users</strong>.</li>
-                                <li>انقر على زر <strong>Add Users</strong> (إضافة مستخدمين).</li>
-                                <li>اكتب الإيميل المعتمد: <strong className="font-sans text-xs">dataexpotime@gmail.com</strong> ثم اضغط على <strong>Save (حفظ)</strong>.</li>
-                              </ol>
-                            </div>
+                        ) : (
+                          <div className="border-4 border-dashed border-slate-200 hover:border-blue-300 rounded-2xl p-8 transition-colors relative flex flex-col items-center justify-center bg-slate-50/50">
+                            <Upload className="w-12 h-12 text-blue-500 mb-3" />
+                            <h4 className="font-extrabold text-sm text-slate-800">اسحب وأفلت ملف الـ Excel هنا</h4>
+                            <p className="text-[11px] text-slate-400 mt-1 max-w-sm">
+                              يرجى اختيار ملف بامتداد (.xlsx) أو (.csv). سيتعرف النظام تلقائياً على الأعمدة العربية مثل "اسم الشركة" و "الجوال" ويقوم بمزامنتها مباشرة.
+                            </p>
+                            
+                            <label className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer inline-flex items-center gap-1">
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>تصفح ملفات جهازك</span>
+                              <input 
+                                type="file" 
+                                accept=".xlsx, .csv" 
+                                onChange={handleExcelImport} 
+                                className="hidden" 
+                              />
+                            </label>
                           </div>
+                        )}
+
+                        <div className="bg-amber-50 border border-amber-250 rounded-xl p-4 text-right text-[11px] text-amber-900 leading-relaxed max-w-2xl mx-auto space-y-1">
+                          <span className="font-bold block text-amber-950">💡 صيغة الملف المثالية لضمان المزامنة في Baserow:</span>
+                          <p>
+                            يجب أن تشتمل الأعمدة الرئيسية على التالي كحد أدنى وتتواءم مسمياتها: 
+                            <span className="underline font-bold px-1 text-blue-800">"اسم الشركة"</span> أو "الاسم" • 
+                            <span className="underline font-bold px-1 text-blue-800">"الجوال الرئيسي"</span> أو "الجوال" • 
+                            <span className="underline font-bold px-1 text-blue-800">"البريد الإلكتروني"</span> أو "البريد" • 
+                            <span className="underline font-bold px-1 text-blue-800">"النشاط"</span>.
+                          </p>
                         </div>
                       </div>
+                    )}
 
-                      {googleUser && (
-                        <motion.div 
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="space-y-5 border border-slate-150 rounded-2xl p-5 bg-slate-50/50"
-                        >
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* إدخال أو ربط ملف */}
-                            <div className="space-y-1.5 text-right">
-                              <label className="font-extrabold text-xs text-slate-700">كود ملف Google Sheet الخاص بك (Spreadsheet ID)</label>
-                              <div className="flex gap-2">
-                                <input
-                                  type="text"
-                                  value={googleSheetId}
-                                  onChange={(e) => {
-                                    const val = e.target.value.trim();
-                                    setGoogleSheetId(val);
-                                    localStorage.setItem("expo_google_sheet_id", val);
-                                    
-                                    // إذا تم توفير ID كامل أو رابط كامل، فلنحاول استخلاص الـ ID
-                                    if (val.includes("docs.google.com/spreadsheets")) {
-                                      const matches = val.match(/\/d\/([a-zA-Z0-9-_]+)/);
-                                      if (matches && matches[1]) {
-                                        setGoogleSheetId(matches[1]);
-                                        localStorage.setItem("expo_google_sheet_id", matches[1]);
-                                        setGoogleSheetUrl(`https://docs.google.com/spreadsheets/d/${matches[1]}`);
-                                        localStorage.setItem("expo_google_sheet_url", `https://docs.google.com/spreadsheets/d/${matches[1]}`);
-                                      }
-                                    } else {
-                                      const url = val ? `https://docs.google.com/spreadsheets/d/${val}` : "";
-                                      setGoogleSheetUrl(url);
-                                      localStorage.setItem("expo_google_sheet_url", url);
-                                    }
-                                  }}
-                                  placeholder="مثال: 1aBcDeFgHiJkLmNoPqRsTuVwXyZ"
-                                  className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 bg-white text-slate-800 text-xs font-mono text-left"
-                                  dir="ltr"
-                                />
-                                {googleSheetId && (
-                                  <a
-                                    href={googleSheetUrl || `https://docs.google.com/spreadsheets/d/${googleSheetId}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl flex items-center justify-center border border-slate-200 transition-all"
-                                    title="افتح جدول البيانات في علامة تبويب جديدة"
-                                  >
-                                    <Globe className="w-4 h-4 text-emerald-600" />
-                                  </a>
-                                )}
+                    {importTab === "google-sheets" && (
+                      /* واجهة ربط وتكامل جوجل شيت */
+                      isManagerMode ? (
+                        <div className="space-y-6 text-right">
+                          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                              <div className="bg-white p-3 rounded-xl border border-blue-100 shadow-sm flex items-center justify-center">
+                                {/* Google Logo */}
+                                <svg className="w-7 h-7" viewBox="0 0 24 24">
+                                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22c-.81-2.63-.81-3.07-.81-3.63z" />
+                                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                                </svg>
                               </div>
-                              <p className="text-[10px] text-slate-400">
-                                يمكنك نسخ ولصق رابط ملف قوقل شيت بالكامل، وسيتعرف النظام عليه تلقائياً.
-                              </p>
-                            </div>
-
-                            {/* توليد تلقائي لجدول جديد */}
-                            <div className="flex flex-col justify-end">
-                              <button
-                                onClick={handleCreateGoogleSheet}
-                                disabled={isGoogleLoading}
-                                className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                              >
-                                <FileSpreadsheet className="w-4 h-4" />
-                                <span>إنشاء ملف Google Sheet جديد وتوصيله تلقائياً 📊</span>
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* مؤشر الحالة والعمليات */}
-                          {(googleStatusMsg || googleErrorMsg || isGoogleLoading) && (
-                            <div className="p-3.5 rounded-xl text-xs font-bold space-y-1">
-                              {isGoogleLoading && (
-                                <div className="flex items-center gap-2 text-blue-800 animate-pulse">
-                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                  <span>جاري معالجة وتدبير وتواصل عمليات Google Workspace...</span>
-                                </div>
-                              )}
-                              {googleStatusMsg && (
-                                <div className="text-emerald-700 flex items-center gap-1.5">
-                                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                  <span>{googleStatusMsg}</span>
-                                </div>
-                              )}
-                              {googleErrorMsg && (
-                                <div className="text-rose-700 flex items-center gap-1.5">
-                                  <AlertCircle className="w-4 h-4 text-rose-500" />
-                                  <span>{googleErrorMsg}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* لوحة إجراءات التزامن */}
-                          {googleSheetId && (
-                            <div className="border-t border-slate-200 pt-4 mt-2">
-                              <h5 className="font-extrabold text-xs text-slate-800 mb-3 block">إجراءات المزامنة والربط المباشرة مع CRM:</h5>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <button
-                                  onClick={handleExportToGoogleSheets}
-                                  disabled={isGoogleLoading}
-                                  className="py-4 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
-                                >
-                                  <Upload className="w-4 h-4" />
-                                  <span>تصدير وتحديث قوقل شيت بالعملاء الحاليين ⬆️</span>
-                                </button>
-
-                                <button
-                                  onClick={handleImportFromGoogleSheets}
-                                  disabled={isGoogleLoading}
-                                  className="py-4 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-extrabold shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
-                                >
-                                  <Download className="w-4 h-4" />
-                                  <span>استيراد وتحديث CRM من ملف قوقل شيت ⬇️</span>
-                                </button>
-                              </div>
-
-                              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-right text-[11px] text-amber-900 leading-relaxed space-y-1 mt-4">
-                                <span className="font-bold block text-amber-950">💡 نصيحة المزامنة الذكية:</span>
-                                <p>
-                                  عند قيامك بالاستيراد، يقوم محرك بورتال ExpoTime الذكي بالبحث التلقائي في جميع أعمدة ورقة العمل والتعرف تلقائياً على اسم الشركة، المدينة، الهاتف، النشاط، ومسؤول المبيعات بغض النظر عن ترتيب الأعمدة وتنزيلها وتحديثها مع منع تكرار الشركات مسبقاً.
+                              <div>
+                                <h4 className="font-extrabold text-sm text-slate-800 font-sans">حالة الربط مع حساب Google Workspace</h4>
+                                <p className="text-[11px] text-slate-500 mt-0.5">
+                                  {googleUser ? `متصل بالبريد: ${googleUser.email}` : "قم بتسجيل الدخول لتمكين ربط جداول البيانات وقراءة ملفاتك"}
                                 </p>
                               </div>
                             </div>
-                          )}
-                        </motion.div>
-                      )}
-                    </div>
-                  )}
 
-                  {importTab === "manual" && (
+                            <div>
+                              {googleUser ? (
+                                <button
+                                  type="button"
+                                  onClick={handleGoogleLogout}
+                                  disabled={isGoogleLoading}
+                                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                                >
+                                  <LogOut className="w-3.5 h-3.5" />
+                                  <span>قطع الاتصال بحساب Google</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={handleGoogleSignIn}
+                                  disabled={isGoogleLoading}
+                                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold rounded-xl shadow-md shadow-blue-600/10 transition-all cursor-pointer flex items-center gap-2"
+                                >
+                                  <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                                  </svg>
+                                  <span>تسجيل الدخول الآمن بـ Google</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* دليل حل مشكلة حظر الوصول 403 لـ Google Sheets */}
+                          <div className="mt-6 bg-amber-50 border border-amber-200 rounded-2xl p-5 text-right space-y-3.5">
+                            <h4 className="text-xs font-black text-amber-800 flex items-center gap-2">
+                              <span>⚠️ دليل تجاوز وحل مشكلة الحظر (Access Blocked: 403) لمزامنة Google Sheets</span>
+                            </h4>
+                            <p className="text-[11px] leading-relaxed text-amber-900">
+                              عند استخدام الحساب <strong className="font-sans text-xs">dataexpotime@gmail.com</strong> للمرة الأولى، قد تواجه رسالة منع من Google بسبب عدم اكتمال فحص التطبيق التجريبي. يمكنك حلها فوراً بأحد الحلين التاليين:
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                              <div className="bg-white p-3.5 rounded-xl border border-amber-100 space-y-1.5">
+                                <span className="text-[11px] font-bold text-amber-900 block border-b border-amber-50 pb-1">💡 الحل الأول (تفعيل وضع الإنتاج - لجميع المستخدمين):</span>
+                                <ol className="text-[10px] text-slate-600 list-decimal list-inside space-y-1">
+                                  <li>افتح شاشة موافقة OAuth في Google Cloud Console للمشروع gen-lang-client.</li>
+                                  <li>ضمن قسم <strong>Publishing status</strong> (حالة النشر)، اضغط على زر <strong>Publish App</strong> لتحويله إلى وضع الإنتاج.</li>
+                                  <li>عند تسجيل الدخول بعد ذلك، انقر على <strong>خيارات متقدمة (Advanced)</strong> ثم <strong>الانتقال إلى التطبيق (Go to app - unsafe)</strong> وسيتم الربط فوراً!</li>
+                                </ol>
+                              </div>
+                              <div className="bg-white p-3.5 rounded-xl border border-amber-100 space-y-1.5">
+                                <span className="text-[11px] font-bold text-amber-900 block border-b border-amber-50 pb-1">💡 الحل الثاني (إضافة كـ مستخدم تجريبي):</span>
+                                <ol className="text-[10px] text-slate-600 list-decimal list-inside space-y-1">
+                                  <li>في نفس شاشة موافقة OAuth، انزل لأسفل حتى تصل إلى قسم <strong>Test Users</strong>.</li>
+                                  <li>انقر على زر <strong>Add Users</strong> (إضافة مستخدمين).</li>
+                                  <li>اكتب الإيميل المعتمد: <strong className="font-sans text-xs">dataexpotime@gmail.com</strong> ثم اضغط على <strong>Save (حفظ)</strong>.</li>
+                                </ol>
+                              </div>
+                            </div>
+                          </div>
+
+                          {googleUser && (
+                            <motion.div 
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className="space-y-5 border border-slate-150 rounded-2xl p-5 bg-slate-50/50"
+                            >
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* إدخال أو ربط ملف */}
+                                <div className="space-y-1.5 text-right">
+                                  <label className="font-extrabold text-xs text-slate-700">كود ملف Google Sheet الخاص بك (Spreadsheet ID)</label>
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="text"
+                                      value={googleSheetId}
+                                      onChange={(e) => {
+                                        const val = e.target.value.trim();
+                                        setGoogleSheetId(val);
+                                        localStorage.setItem("expo_google_sheet_id", val);
+                                        
+                                        if (val.includes("docs.google.com/spreadsheets")) {
+                                          const matches = val.match(/\/d\/([a-zA-Z0-9-_]+)/);
+                                          if (matches && matches[1]) {
+                                            setGoogleSheetId(matches[1]);
+                                            localStorage.setItem("expo_google_sheet_id", matches[1]);
+                                            setGoogleSheetUrl(`https://docs.google.com/spreadsheets/d/${matches[1]}`);
+                                            localStorage.setItem("expo_google_sheet_url", `https://docs.google.com/spreadsheets/d/${matches[1]}`);
+                                          }
+                                        } else {
+                                          const url = val ? `https://docs.google.com/spreadsheets/d/${val}` : "";
+                                          setGoogleSheetUrl(url);
+                                          localStorage.setItem("expo_google_sheet_url", url);
+                                        }
+                                      }}
+                                      placeholder="مثال: 1aBcDeFgHiJkLmNoPqRsTuVwXyZ"
+                                      className="flex-1 border border-slate-200 rounded-xl px-3 py-2.5 bg-white text-slate-800 text-xs font-mono text-left"
+                                      dir="ltr"
+                                    />
+                                    {googleSheetId && (
+                                      <a
+                                        href={googleSheetUrl || `https://docs.google.com/spreadsheets/d/${googleSheetId}`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl flex items-center justify-center border border-slate-200 transition-all"
+                                        title="افتح جدول البيانات في علامة تبويب جديدة"
+                                      >
+                                        <Globe className="w-4 h-4 text-emerald-600" />
+                                      </a>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-slate-400">
+                                    يمكنك نسخ ولصق رابط ملف قوقل شيت بالكامل، وسيتعرف النظام عليه تلقائياً.
+                                  </p>
+                                </div>
+
+                                {/* توليد تلقائي لجدول جديد */}
+                                <div className="flex flex-col justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={handleCreateGoogleSheet}
+                                    disabled={isGoogleLoading}
+                                    className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                  >
+                                    <FileSpreadsheet className="w-4 h-4" />
+                                    <span>إنشاء ملف Google Sheet جديد وتوصيله تلقائياً 📊</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* مؤشر الحالة والعمليات */}
+                              {(googleStatusMsg || googleErrorMsg || isGoogleLoading) && (
+                                <div className="p-3.5 rounded-xl text-xs font-bold space-y-1">
+                                  {isGoogleLoading && (
+                                    <div className="flex items-center gap-2 text-blue-800 animate-pulse">
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                      <span>جاري معالجة وتدبير وتواصل عمليات Google Workspace...</span>
+                                    </div>
+                                  )}
+                                  {googleStatusMsg && (
+                                    <div className="text-emerald-700 flex items-center gap-1.5">
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                      <span>{googleStatusMsg}</span>
+                                    </div>
+                                  )}
+                                  {googleErrorMsg && (
+                                    <div className="text-rose-700 flex items-center gap-1.5">
+                                      <AlertCircle className="w-4 h-4 text-rose-500" />
+                                      <span>{googleErrorMsg}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* لوحة إجراءات التزامن */}
+                              {googleSheetId && (
+                                <div className="border-t border-slate-200 pt-4 mt-2">
+                                  <h5 className="font-extrabold text-xs text-slate-800 mb-3 block">إجراءات المزامنة والربط المباشرة مع CRM:</h5>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <button
+                                      type="button"
+                                      onClick={handleExportToGoogleSheets}
+                                      disabled={isGoogleLoading}
+                                      className="py-4 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
+                                    >
+                                      <Upload className="w-4 h-4" />
+                                      <span>تصدير وتحديث قوقل شيت بالعملاء الحاليين ⬆️</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={handleImportFromGoogleSheets}
+                                      disabled={isGoogleLoading}
+                                      className="py-4 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-extrabold shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
+                                    >
+                                      <Download className="w-4 h-4" />
+                                      <span>استيراد وتحديث CRM من ملف قوقل شيت ⬇️</span>
+                                    </button>
+                                  </div>
+
+                                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-right text-[11px] text-amber-900 leading-relaxed space-y-1 mt-4">
+                                    <span className="font-bold block text-amber-950">💡 نصيحة المزامنة الذكية:</span>
+                                    <p>
+                                      عند قيامك بالاستيراد، يقوم محرك بورتال ExpoTime الذكي بالبحث التلقائي في جميع أعمدة ورقة العمل والتعرف تلقائياً على اسم الشركة، المدينة، الهاتف، النشاط، ومسؤول المبيعات بغض النظر عن ترتيب الأعمدة وتنزيلها وتحديثها مع منع تكرار الشركات مسبقاً.
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+                            </motion.div>
+                          )}
+                        </div>
+                      ) : (
+                        /* واجهة المندوب المبسطة والمؤمنة */
+                        <div className="space-y-6 text-right select-none animate-fade-in">
+                          <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 flex flex-col items-center justify-center text-center max-w-xl mx-auto space-y-4">
+                            <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shadow-inner">
+                              <Cloud className="w-8 h-8 text-indigo-600" />
+                            </div>
+                            <div>
+                              <h4 className="font-extrabold text-base text-slate-800">سحابة المزامنة المركزية المعتمدة</h4>
+                              <p className="text-xs text-slate-500 mt-1 max-w-sm">
+                                تم ربط وتأمين هذا الحساب بملف الإدارة الرئيسي الموحد والمحمي لضمان سلامة وسرية البيانات. ليس لديك صلاحية تعديل الإعدادات، ولكن يمكنك مزامنة أعمالك.
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-[11px] font-bold">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                              <span>اتصال قوقل شيت الإداري: مستقر وآمن 🔒</span>
+                            </div>
+
+                            <div className="w-full border-t border-slate-200/60 my-2 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <button
+                                type="button"
+                                onClick={handleExportToGoogleSheets}
+                                disabled={isGoogleLoading}
+                                className="py-4 px-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
+                              >
+                                <Upload className="w-4 h-4" />
+                                <span>رفع وتحديث مبيعاتي للملف الرئيسي ⬆️</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={handleImportFromGoogleSheets}
+                                disabled={isGoogleLoading}
+                                className="py-4 px-5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-extrabold shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
+                              >
+                                <Download className="w-4 h-4" />
+                                <span>سحب وتحديث العملاء من الملف الرئيسي ⬇️</span>
+                              </button>
+                            </div>
+
+                            {/* مؤشرات التحميل والرفع */}
+                            {(googleStatusMsg || googleErrorMsg || isGoogleLoading) && (
+                              <div className="p-3.5 bg-white border border-slate-100 rounded-2xl text-xs font-bold w-full text-right space-y-1">
+                                {isGoogleLoading && (
+                                  <div className="flex items-center justify-center gap-2 text-blue-800 animate-pulse py-1">
+                                    <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                                    <span>جاري التواصل والمزامنة الآمنة للملف الرئيسي...</span>
+                                  </div>
+                                )}
+                                {googleStatusMsg && (
+                                  <div className="text-emerald-700 flex items-center gap-1.5 justify-center py-1">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                    <span>{googleStatusMsg}</span>
+                                  </div>
+                                )}
+                                {googleErrorMsg && (
+                                  <div className="text-rose-700 flex items-center gap-1.5 justify-center py-1">
+                                    <AlertCircle className="w-4 h-4 text-rose-500" />
+                                    <span>{googleErrorMsg}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    )}
+
+                    {importTab === "manual" && (
                     /* واجهة نموذج الإدخال اليدوي */
                     <form onSubmit={handleManualSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs select-none">
                       <div className="space-y-1">
@@ -2511,6 +2792,341 @@ export default function App() {
                                     </td>
                                   </tr>
                                 ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {importTab === "excel-ai" && (
+                    <div className="space-y-6 text-right">
+                      {/* Banner */}
+                      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-2xl p-5 flex items-start gap-4">
+                        <div className="p-3 bg-indigo-600 rounded-xl text-white">
+                          <Cpu className="w-5 h-5 animate-pulse" />
+                        </div>
+                        <div>
+                          <h4 className="font-extrabold text-sm text-indigo-950 font-sans">
+                            مُعالج ملفات الإكسل الذكي بكافة صفحاتها الداخلية 🤖📊
+                          </h4>
+                          <p className="text-xs text-indigo-750 mt-1 leading-relaxed font-sans font-medium">
+                            هذه الأداة تتيح لك رفع ملفات إكسل تحتوي على <strong>ما يصل إلى 7 صفحات داخلية (Sheets)</strong> دفعة واحدة. سيقوم الذكاء الاصطناعي <strong>Gemini 3.5 Flash</strong> باستخلاص كافة العملاء وتطهيرهم من الأخطاء وتقديمهم لك في جدول تفاعلي للمراجعة والاعتماد والموافقة أو الرفض أو التعديل الفردي قبل المزامنة أو التحميل!
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Upload Box */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/20 hover:bg-indigo-50/40 transition-all rounded-2xl p-6 text-center space-y-3">
+                          <div className="inline-flex p-3 bg-indigo-100 text-indigo-600 rounded-full">
+                            <FileSpreadsheet className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-slate-700">ارفع ملف إكسل متعدد الصفحات (.xlsx, .xls)</p>
+                            <p className="text-[10px] text-slate-400 mt-1">سيتم قراءة وفحص كافة الصفحات تلقائياً</p>
+                          </div>
+                          <div className="flex justify-center">
+                            <label className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer transition-all flex items-center gap-1.5">
+                              <Upload className="w-3.5 h-3.5" />
+                              <span>اختر الملف المرفق 📂</span>
+                              <input
+                                type="file"
+                                accept=".xlsx, .xls"
+                                onChange={handleUploadMultiSheetExcel}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* Excel File Status Info */}
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 flex flex-col justify-between">
+                          <div className="space-y-2 text-right">
+                            <h5 className="font-extrabold text-xs text-slate-800">حالة المستند الحالي:</h5>
+                            {excelSheets.length > 0 ? (
+                              <div className="space-y-1.5">
+                                <div className="text-xs font-bold text-emerald-600 flex items-center gap-1">
+                                  <span>● تم تحميل الملف بنجاح!</span>
+                                </div>
+                                <div className="text-[11px] text-slate-650 font-bold">
+                                  عدد الصفحات المكتشفة: <strong>{excelSheets.length} ورقة داخلية</strong>
+                                </div>
+                                <div className="flex flex-wrap gap-1 mt-1 max-h-[80px] overflow-y-auto">
+                                  {excelSheets.map((sh, idx) => (
+                                    <span key={idx} className="bg-indigo-50 text-indigo-700 text-[9px] px-2 py-0.5 rounded font-bold border border-indigo-100">
+                                      {sh.sheetName} ({sh.rows.length} صف)
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-slate-400 italic">لا يوجد ملف مرفوع حالياً. يرجى رفع ملف إكسل للبدء.</p>
+                            )}
+                          </div>
+
+                          {excelSheets.length > 0 && (
+                            <div className="pt-4 border-t border-slate-200/60 mt-4">
+                              <button
+                                type="button"
+                                onClick={handleProcessMultiSheetAI}
+                                disabled={isProcessingSheetsAI || loading}
+                                className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-black text-xs rounded-xl shadow-md cursor-pointer flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                              >
+                                <Sparkles className={`w-4 h-4 ${isProcessingSheetsAI ? "animate-spin" : ""}`} />
+                                <span>{isProcessingSheetsAI ? "جاري معالجة وتطهير البيانات بواسطة الذكاء الاصطناعي..." : "استخلاص وتنظيم كافة الصفحات بالذكاء الاصطناعي ✨"}</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Review Table Section (The crucial Approval/Rejection/Editing screen) */}
+                      {aiCleanedCompanies.length > 0 && (
+                        <div className="space-y-4 pt-4 border-t border-slate-200">
+                          <div className="flex items-center justify-between flex-wrap gap-2 text-right">
+                            <div className="space-y-0.5">
+                              <h5 className="font-black text-sm text-indigo-950">لوحة مراجعة وتصفية البيانات المستخلصة 🛠️🔍</h5>
+                              <p className="text-[11px] text-slate-500">
+                                راجع قائمة العملاء أدناه قبل استيرادها أو تنزيلها. يمكنك تعديل البيانات أو استبعاد (رفض) أي جهة اتصال لتجاهلها.
+                              </p>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 font-bold text-xs">
+                              <span className="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-100">
+                                معتمد ومقبول: {aiCleanedCompanies.filter(c => c.approved).length}
+                              </span>
+                              <span className="bg-rose-50 text-rose-700 px-3 py-1.5 rounded-lg border border-rose-100">
+                                مستبعد ومرفوض: {aiCleanedCompanies.filter(c => !c.approved).length}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Quick Global Action Controls */}
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between flex-wrap gap-2">
+                            <span className="text-[11px] text-slate-500 font-bold">الإجراءات الجماعية والمزامنة:</span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleDownloadCleanedExcel}
+                                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition-all shadow-xs"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>تحميل ملف الإكسل المصفى والمطهر 📥</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleImportApprovedCompanies}
+                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition-all shadow-md shadow-indigo-600/10"
+                              >
+                                <CheckCheck className="w-4 h-4" />
+                                <span>تأكيد المعتمدين والمزامنة مع الـ CRM 🚀🟢</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Review Table Grid */}
+                          <div className="overflow-x-auto border border-slate-200 rounded-2xl max-h-[400px] overflow-y-auto shadow-sm">
+                            <table className="w-full text-right border-collapse text-xs">
+                              <thead>
+                                <tr className="bg-slate-100 border-b border-slate-200 text-slate-800 font-extrabold">
+                                  <th className="py-3 px-3">اسم الشركة / العميل</th>
+                                  <th className="py-3 px-3">المدينة والنشاط</th>
+                                  <th className="py-3 px-3">الجوال الرئيسي</th>
+                                  <th className="py-3 px-3">البريد الإلكتروني</th>
+                                  <th className="py-3 px-3">الأولوية والحالة</th>
+                                  <th className="py-3 px-3">ملاحظات الذكاء الاصطناعي</th>
+                                  <th className="py-3 px-3 text-center">الإجراءات والمراجعة</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {aiCleanedCompanies.map((comp) => {
+                                  const isEditing = editingAiCompanyId === comp.id;
+                                  return (
+                                    <tr 
+                                      key={comp.id} 
+                                      className={`border-b border-slate-100 transition-all ${
+                                        !comp.approved 
+                                          ? "bg-slate-50/60 opacity-60 line-through text-slate-400" 
+                                          : isEditing 
+                                            ? "bg-amber-50/40" 
+                                            : "hover:bg-slate-50/50"
+                                      }`}
+                                    >
+                                      {/* اسم الشركة */}
+                                      <td className="py-3 px-3 font-bold">
+                                        {isEditing ? (
+                                          <input
+                                            type="text"
+                                            value={editingAiCompanyFields?.["اسم الشركة"] || ""}
+                                            onChange={(e) => setEditingAiCompanyFields({ ...editingAiCompanyFields, "اسم الشركة": e.target.value })}
+                                            className="border border-amber-300 rounded px-2 py-1 text-xs font-bold text-slate-800 focus:outline-amber-500 w-full"
+                                          />
+                                        ) : (
+                                          <span className="text-slate-800">{comp["اسم الشركة"]}</span>
+                                        )}
+                                      </td>
+
+                                      {/* المدينة والنشاط */}
+                                      <td className="py-3 px-3 space-y-1">
+                                        {isEditing ? (
+                                          <div className="space-y-1">
+                                            <input
+                                              type="text"
+                                              placeholder="المدينة"
+                                              value={editingAiCompanyFields?.["المدينة"] || ""}
+                                              onChange={(e) => setEditingAiCompanyFields({ ...editingAiCompanyFields, "المدينة": e.target.value })}
+                                              className="border border-amber-300 rounded px-1.5 py-0.5 text-[11px] focus:outline-amber-500 w-full"
+                                            />
+                                            <input
+                                              type="text"
+                                              placeholder="النشاط"
+                                              value={editingAiCompanyFields?.["النشاط"] || ""}
+                                              onChange={(e) => setEditingAiCompanyFields({ ...editingAiCompanyFields, "النشاط": e.target.value })}
+                                              className="border border-amber-300 rounded px-1.5 py-0.5 text-[11px] focus:outline-amber-500 w-full"
+                                            />
+                                          </div>
+                                        ) : (
+                                          <div className="text-[11px] text-slate-650">
+                                            <span className="bg-slate-100 px-1.5 py-0.5 rounded font-semibold text-slate-700 ml-1">{comp["المدينة"]}</span>
+                                            <span>{comp["النشاط"]}</span>
+                                          </div>
+                                        )}
+                                      </td>
+
+                                      {/* الجوال الرئيسي */}
+                                      <td className="py-3 px-3 font-mono font-bold">
+                                        {isEditing ? (
+                                          <input
+                                            type="text"
+                                            value={editingAiCompanyFields?.["الجوال الرئيسي"] || ""}
+                                            onChange={(e) => setEditingAiCompanyFields({ ...editingAiCompanyFields, "الجوال الرئيسي": e.target.value })}
+                                            className="border border-amber-300 rounded px-2 py-1 text-xs text-slate-850 focus:outline-amber-500 font-mono w-full"
+                                          />
+                                        ) : (
+                                          <span className="text-slate-700">{comp["الجوال الرئيسي"] || "بلا رقم"}</span>
+                                        )}
+                                      </td>
+
+                                      {/* البريد الإلكتروني */}
+                                      <td className="py-3 px-3 text-slate-500 text-[11px]">
+                                        {isEditing ? (
+                                          <input
+                                            type="text"
+                                            value={editingAiCompanyFields?.["البريد الإلكتروني"] || ""}
+                                            onChange={(e) => setEditingAiCompanyFields({ ...editingAiCompanyFields, "البريد الإلكتروني": e.target.value })}
+                                            className="border border-amber-300 rounded px-2 py-1 text-xs text-slate-800 focus:outline-amber-500 w-full"
+                                          />
+                                        ) : (
+                                          <span>{comp["البريد الإلكتروني"] || "-"}</span>
+                                        )}
+                                      </td>
+
+                                      {/* الأولوية والحالة */}
+                                      <td className="py-3 px-3 space-y-1">
+                                        {isEditing ? (
+                                          <div className="space-y-1">
+                                            <select
+                                              value={editingAiCompanyFields?.["الأولوية"] || "متوسطة"}
+                                              onChange={(e) => setEditingAiCompanyFields({ ...editingAiCompanyFields, "الأولوية": e.target.value })}
+                                              className="border border-amber-300 rounded px-1.5 py-0.5 text-[11px] focus:outline-amber-500 w-full"
+                                            >
+                                              <option value="عالية">عالية</option>
+                                              <option value="متوسطة">متوسطة</option>
+                                              <option value="منخفضة">منخفضة</option>
+                                            </select>
+                                            <select
+                                              value={editingAiCompanyFields?.["الحالة"] || "جديد"}
+                                              onChange={(e) => setEditingAiCompanyFields({ ...editingAiCompanyFields, "الحالة": e.target.value })}
+                                              className="border border-amber-300 rounded px-1.5 py-0.5 text-[11px] focus:outline-amber-500 w-full"
+                                            >
+                                              <option value="جديد">جديد</option>
+                                              <option value="تم الاتصال">تم الاتصال</option>
+                                              <option value="تفاوض">تفاوض</option>
+                                              <option value="تم إرسال العرض">تم إرسال العرض</option>
+                                              <option value="تم التعميد">تم التعميد</option>
+                                            </select>
+                                          </div>
+                                        ) : (
+                                          <div className="flex flex-col gap-1 items-start">
+                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                              comp["الأولوية"] === "عالية" ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-600"
+                                            }`}>
+                                              الأولوية: {comp["الأولوية"]}
+                                            </span>
+                                            <span className="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                                              {comp["الحالة"]}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </td>
+
+                                      {/* ملاحظات الذكاء الاصطناعي */}
+                                      <td className="py-3 px-3 text-slate-600 max-w-[200px] truncate text-[11px]" title={comp["ملاحظات"]}>
+                                        {isEditing ? (
+                                          <textarea
+                                            value={editingAiCompanyFields?.["ملاحظات"] || ""}
+                                            onChange={(e) => setEditingAiCompanyFields({ ...editingAiCompanyFields, "ملاحظات": e.target.value })}
+                                            className="border border-amber-300 rounded px-2 py-1 text-xs focus:outline-amber-500 w-full font-sans"
+                                            rows={2}
+                                          />
+                                        ) : (
+                                          <span>{comp["ملاحظات"]}</span>
+                                        )}
+                                      </td>
+
+                                      {/* الإجراءات */}
+                                      <td className="py-3 px-3 text-center">
+                                        {isEditing ? (
+                                          <div className="flex items-center justify-center gap-1.5">
+                                            <button
+                                              type="button"
+                                              onClick={saveEditingAiCompany}
+                                              className="px-2 py-1 bg-emerald-600 text-white rounded text-[10px] font-bold hover:bg-emerald-700 cursor-pointer"
+                                            >
+                                              حفظ ✅
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setEditingAiCompanyId(null);
+                                                setEditingAiCompanyFields(null);
+                                              }}
+                                              className="px-2 py-1 bg-slate-200 text-slate-700 rounded text-[10px] font-bold hover:bg-slate-300 cursor-pointer"
+                                            >
+                                              إلغاء ❌
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center justify-center gap-1.5">
+                                            {/* Approve / Reject Toggle */}
+                                            <button
+                                              type="button"
+                                              onClick={() => toggleCompanyApproval(comp.id)}
+                                              className={`px-2 py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                                comp.approved 
+                                                  ? "bg-rose-50 text-rose-600 hover:bg-rose-100" 
+                                                  : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                                              }`}
+                                            >
+                                              {comp.approved ? "استبعاد 🚫" : "اعتماد وتفعيل ✔️"}
+                                            </button>
+
+                                            {/* Edit */}
+                                            <button
+                                              type="button"
+                                              onClick={() => startEditingAiCompany(comp)}
+                                              className="px-2 py-1 bg-indigo-50 text-indigo-650 hover:bg-indigo-100 rounded text-[10px] font-bold cursor-pointer"
+                                            >
+                                              تعديل 📝
+                                            </button>
+                                          </div>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>

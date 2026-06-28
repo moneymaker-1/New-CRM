@@ -73,7 +73,7 @@ let mockEmployeesList = [
 ];
 
 // بيانات تجريبية (Mock Data) للشركات في حال عدم توفر الاتصال بـ Baserow
-let mockCompanies: any[] = [
+let mockCompanies: any[] = []; /* [
   {
     id: 1,
     "كود الشركة": "COMP-101",
@@ -254,10 +254,10 @@ let mockCompanies: any[] = [
     "المصدر": "معرض فعاليات الشمال",
     "ملاحظات": "مشاركتهم مترددة وتعتمد على رعاية إمارة المنطقة للمعرض"
   }
-];
+]; */
 
 // سجلات المتابعات للتجربة المحلية
-let mockFollowups: any[] = [
+let mockFollowups: any[] = []; /* [
   {
     id: 1,
     "الشركة المرتبطة": 2,
@@ -276,7 +276,7 @@ let mockFollowups: any[] = [
     "الملاحظات": "استلام التعميد الرسمي من مكتب المشتريات بمقر طيران أديل بالكامل.",
     "المصدر": "واجهة المندوب"
   }
-];
+]; */
 
 // ==========================================
 // 1.5. نظام التخزين المحلي المحمي للملفات وتكامل البيانات
@@ -287,6 +287,53 @@ const EMPLOYEES_FILE = path.join(process.cwd(), "employees-db.json");
 const QUOTATIONS_FILE = path.join(process.cwd(), "quotations-db.json");
 const SETTINGS_FILE = path.join(process.cwd(), "settings-db.json");
 const CHATS_FILE = path.join(process.cwd(), "chats-db.json");
+const WORKSPACE_CHATS_FILE = path.join(process.cwd(), "workspace-chats-db.json");
+
+let mockWorkspaceChats: any[] = [];
+try {
+  if (fs.existsSync(WORKSPACE_CHATS_FILE)) {
+    mockWorkspaceChats = JSON.parse(fs.readFileSync(WORKSPACE_CHATS_FILE, "utf8"));
+  } else {
+    mockWorkspaceChats = [
+      {
+        id: "wmsg-1",
+        sender: "المدير العام",
+        message: "السلام عليكم يا زملاء العمل، أرجو التركيز التام على استقطاب وتعميد عملاء المعارض القادمة. تم تفعيل مزامنة ملف قوقل شيت الموحد.",
+        type: "general",
+        timestamp: new Date(Date.now() - 3600000 * 5).toISOString()
+      },
+      {
+        id: "wmsg-2",
+        sender: "مؤيدة",
+        message: "وعليكم السلام يا فندم. أبشرك تم حسم ومراجعة التفاصيل مع شركة سدير وسيتم رفع التعميد للمحاسب اليوم.",
+        type: "general",
+        timestamp: new Date(Date.now() - 3600000 * 4).toISOString()
+      },
+      {
+        id: "wmsg-3",
+        sender: "محمود",
+        message: "هل من الممكن تحويل عميل شركة آفاق الغد لحسابي لمتابعتهم في مدينة جدة؟",
+        type: "transfer",
+        companyName: "شركة آفاق الغد للحلول الذكية",
+        timestamp: new Date(Date.now() - 3600000 * 2).toISOString()
+      },
+      {
+        id: "wmsg-4",
+        sender: "مؤيدة",
+        message: "تفضل يا محمود، ليس لدي مانع من نقل العميل لك لمتابعة فرع جدة لديهم.",
+        type: "general",
+        timestamp: new Date(Date.now() - 3600000 * 1).toISOString()
+      }
+    ];
+    fs.writeFileSync(WORKSPACE_CHATS_FILE, JSON.stringify(mockWorkspaceChats, null, 2), "utf8");
+  }
+} catch (e: any) {
+  console.error("خطأ في قراءة ملف دردشة زملاء العمل الموحد:", e.message);
+}
+
+const saveWorkspaceChatsLocal = () => {
+  try { fs.writeFileSync(WORKSPACE_CHATS_FILE, JSON.stringify(mockWorkspaceChats, null, 2), "utf8"); } catch(e){}
+};
 
 let mockChats: any[] = [];
 try {
@@ -294,22 +341,7 @@ try {
     mockChats = JSON.parse(fs.readFileSync(CHATS_FILE, "utf8"));
   } else {
     // رسائل افتراضية لتبدأ المحادثات بشكل ممتع وتوضيحي
-    mockChats = [
-      {
-        id: "chat-1",
-        companyId: 1,
-        sender: "المدير العام",
-        message: "أهلاً ومرحباً! يرجى المتابعة العاجلة مع هذا العميل لإنهاء التعميد لمعرض الخمسة الكبار.",
-        timestamp: new Date(Date.now() - 3600000 * 24).toISOString(),
-      },
-      {
-        id: "chat-2",
-        companyId: 1,
-        sender: "مؤيدة",
-        message: "أهلاً يا فندم، تواصلت مع العميل اليوم وأرسلت له العرض المالي، والعميل مهتم جداً وسيقوم بالرد قريباً.",
-        timestamp: new Date(Date.now() - 3600000 * 12).toISOString(),
-      }
-    ];
+    mockChats = [];
     fs.writeFileSync(CHATS_FILE, JSON.stringify(mockChats, null, 2), "utf8");
   }
 } catch (e: any) {
@@ -430,7 +462,8 @@ let appSettings = {
   googleSheetUrl: "https://docs.google.com/spreadsheets/d/1V6B6g_b-3S4v_gE92S3P9h91yRAdF3uH2O1R82b3c/edit?usp=sharing",
   googleDriveFolderId: "1_DrIvE_FoLdEr_ID_SpAcE_ExPoTiMe",
   googleDriveFolderUrl: "https://drive.google.com/drive/folders/1_DrIvE_FoLdEr_ID_SpAcE_ExPoTiMe?usp=sharing",
-  accountantEmail: "jamal@expo-time.co"
+  accountantEmail: "jamal@expo-time.co",
+  accountantPhone: "+966500000000"
 };
 
 try {
@@ -503,13 +536,14 @@ app.get("/api/app-settings", (req, res) => {
 
 // ب) تحديث إعدادات التطبيق العامة (متاح للمدير فقط)
 app.post("/api/app-settings", (req, res) => {
-  const { googleSheetId, googleSheetUrl, googleDriveFolderId, googleDriveFolderUrl, accountantEmail } = req.body;
+  const { googleSheetId, googleSheetUrl, googleDriveFolderId, googleDriveFolderUrl, accountantEmail, accountantPhone } = req.body;
   
   if (googleSheetId !== undefined) appSettings.googleSheetId = googleSheetId;
   if (googleSheetUrl !== undefined) appSettings.googleSheetUrl = googleSheetUrl;
   if (googleDriveFolderId !== undefined) appSettings.googleDriveFolderId = googleDriveFolderId;
   if (googleDriveFolderUrl !== undefined) appSettings.googleDriveFolderUrl = googleDriveFolderUrl;
   if (accountantEmail !== undefined) appSettings.accountantEmail = accountantEmail;
+  if (accountantPhone !== undefined) appSettings.accountantPhone = accountantPhone;
 
   saveSettingsLocal();
   res.json({ success: true, message: "تم حفظ الإعدادات الموحدة بنجاح في السيرفر 🟢", settings: appSettings });
@@ -739,7 +773,7 @@ app.post("/api/accounting-requests", (req, res) => {
     details: details || "تصميم وتنفيذ جناح المعرض",
     exhibition: exhibition || "معرض عام",
     repName: repName || "مبيعات إكسبو تايم",
-    status: "pending", // pending | added_to_program | rejected
+    status: "معلق", // معلق | مكتمل
     taxNumber: taxNumber || "",
     nationalAddress: nationalAddress || "",
     crNumber: crNumber || "",
@@ -758,6 +792,30 @@ app.post("/api/accounting-requests", (req, res) => {
     success: true,
     message: "تم تسجيل العميل وبند التعميد كطلب رسمي معلق ومستندات كاملة ومرفقة للمحاسب بنجاح! 📊🟢",
     request: newRequest
+  });
+});
+
+// ت) تحديث حالة طلب المحاسب (مثل الاعتماد والتعميد)
+app.patch("/api/accounting-requests/:id", (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  const requests = readAccountingRequests();
+  const requestIndex = requests.findIndex((r: any) => String(r.id) === String(id));
+
+  if (requestIndex === -1) {
+    return res.status(404).json({ error: "الطلب المطلوب غير موجود." });
+  }
+
+  requests[requestIndex].status = status || "مكتمل";
+  requests[requestIndex].actionTakenAt = new Date().toISOString();
+
+  writeAccountingRequests(requests);
+
+  res.json({
+    success: true,
+    message: "تم تحديث حالة طلب التعميد بنجاح! 🟢",
+    request: requests[requestIndex]
   });
 });
 
@@ -1020,6 +1078,131 @@ app.post("/api/ai/clean-excel-data", async (req, res) => {
   } catch (error) {
     console.error("خطأ معالجة ملف الإكسل بـ Gemini:", error.message);
     return res.status(500).json({ error: "فشل ذكاء Gemini الاصطناعي في تنظيم وتطهير ملف الإكسل المبعثر.", details: error.message });
+  }
+});
+
+// رابط معالجة ملفات الإكسل متعددة الصفحات بالذكاء الاصطناعي (حتى 7 صفحات داخلية) مع إمكانية المراجعة والتعديل قبل الاستيراد
+app.post("/api/ai/clean-excel-sheets", async (req, res) => {
+  const { sheetsData, salesRep } = req.body;
+
+  if (!process.env.GEMINI_API_KEY) {
+    return res.status(500).json({ error: "مفتاح Gemini API Key غير مبرمج في السيرفر بعد." });
+  }
+
+  if (!sheetsData || !Array.isArray(sheetsData) || sheetsData.length === 0) {
+    return res.status(400).json({ error: "الرجاء توفير مصفوفة الصفحات والبيانات من ملف الإكسل لمعالجتها." });
+  }
+
+  try {
+    // تجميع وتسطيح كافة الصفوف من كافة الصفحات
+    const flattenedRows: any[] = [];
+    sheetsData.forEach((sheet: any) => {
+      const sheetName = sheet.sheetName || "ورقة داخلية";
+      if (Array.isArray(sheet.rows)) {
+        sheet.rows.forEach((row: any) => {
+          flattenedRows.push({
+            "صفحة المصدر": sheetName,
+            ...row
+          });
+        });
+      }
+    });
+
+    if (flattenedRows.length === 0) {
+      return res.json({ success: true, companies: [], totalParsed: 0 });
+    }
+
+    // لتجنب تجاوز حد استهلاك الحصة أو الذاكرة، سنقوم بمعالجة أول 250 صف
+    const subsetRows = flattenedRows.slice(0, 250);
+
+    const prompt = `أنت خبير متميز في معالجة وتنظيف وتطهير بيانات العملاء والشركات لشركتنا ExpoTime.
+لقد قمنا برفع ملف إكسل يحتوي على عدة صفحات داخلية (Sheets) مبعثرة وغير منظمة.
+مهمتك هي تحليل كافة الصفوف المستخرجة واستخلاص الشركات والعملاء، وتنسيقهم بشكل صحيح وموحد باللغة العربية.
+
+الصفحات والصفوف الخام المدخلة هي:
+${JSON.stringify(subsetRows, null, 2)}
+
+شروط الاستخلاص والتنظيف:
+1. "اسم الشركة" (إجباري): استخلص اسم الشركة أو المؤسسة أو العميل بوضوح تام.
+2. "كود الشركة": توليد كود مميز وموحد للشركة يبدأ بـ COMP- ومتبوعاً بـ 4 أرقام عشوائية.
+3. "النشاط": تحديد النشاط الملائم (مثل: معارض ومؤتمرات، تجارة، تقنية، مقاولات، تصنيع، إلخ).
+4. "المدينة": المدينة السعودية المذكورة (مثل: الرياض، جدة، الدمام، مكة، إلخ) أو "الرياض" كقيمة افتراضية.
+5. "الجوال الرئيسي": رقم الجوال بصيغة سعودية صحيحة (05xxxxxxxx).
+6. "البريد الإلكتروني": البريد الإلكتروني الصالح للشركة أو قيمة فارغة.
+7. "الحالة": "جديد" افتراضياً، أو حدد إحدى الحالات: (جديد، تواصل أولي، مهتم، تم تقديم عرض، مفاوضات، تم التعميد، مستبعد).
+8. "الأولوية": (عالية، متوسطة، منخفضة) بحسب الاهتمام المذكور، أو "متوسطة" كافتراضي.
+9. "ملاحظات": ملخص ذكي لأي ملاحظات أو متطلبات في الصف الخام، مع الإشارة إلى صفحة الإكسل التي تم استخراجه منها.
+10. "المعرض": اسم المعرض المرتبط بالعميل إن وجد في البيانات.
+
+الرجاء إرجاع كود JSON صالح تماماً ككائن يحتوي على مصفوفة باسم "cleanedRows".`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            cleanedRows: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  "اسم الشركة": { type: Type.STRING },
+                  "كود الشركة": { type: Type.STRING },
+                  "النشاط": { type: Type.STRING },
+                  "المدينة": { type: Type.STRING },
+                  "الجوال الرئيسي": { type: Type.STRING },
+                  "البريد الإلكتروني": { type: Type.STRING },
+                  "الحالة": { type: Type.STRING },
+                  "الأولوية": { type: Type.STRING },
+                  "ملاحظات": { type: Type.STRING },
+                  "المعرض": { type: Type.STRING }
+                },
+                required: ["اسم الشركة"]
+              }
+            }
+          },
+          required: ["cleanedRows"]
+        }
+      }
+    });
+
+    const responseText = response.text || "{}";
+    const parsed = JSON.parse(responseText);
+    const cleanedRows = parsed.cleanedRows || [];
+
+    const initializedRows = cleanedRows.map((row: any, idx: number) => {
+      const uniqueId = `AI-SHEET-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000)}`;
+      return {
+        id: uniqueId,
+        "اسم الشركة": row["اسم الشركة"] || "شركة مستوردة غير مسمى",
+        "كود الشركة": row["كود الشركة"] || `COMP-${Math.floor(1000 + Math.random() * 9000)}`,
+        "النشاط": row["النشاط"] || "معارض وفعاليات",
+        "المدينة": row["المدينة"] || "الرياض",
+        "الجوال الرئيسي": serverFormatPhone(row["الجوال الرئيسي"] || ""),
+        "البريد الإلكتروني": serverFormatEmail(row["البريد الإلكتروني"] || ""),
+        "الحالة": row["الحالة"] || "جديد",
+        "مسؤول المبيعات": salesRep || "مؤيدة",
+        "الأولوية": row["الأولوية"] || "متوسطة",
+        "آخر تواصل": new Date().toISOString().split("T")[0],
+        "المصدر": "استيراد ذكي متعدد الصفحات (AI)",
+        "ملاحظات": row["ملاحظات"] || "",
+        "المعرض": row["المعرض"] || "",
+        approved: true // مضاف بشكل افتراضي كـ معتمد للمراجعة في الجدول
+      };
+    });
+
+    return res.json({
+      success: true,
+      companies: initializedRows,
+      totalParsed: flattenedRows.length,
+      subsetProcessed: subsetRows.length
+    });
+  } catch (err: any) {
+    console.error("خطأ معالجة صفحات ملف الإكسل بالذكاء الاصطناعي:", err.message);
+    return res.status(500).json({ error: "فشل ذكاء Gemini الاصطناعي في تنظيم وتطهير بيانات صفحات الإكسل.", details: err.message });
   }
 });
 
@@ -1598,34 +1781,57 @@ app.post("/api/login", async (req, res) => {
   const managerUsername = (process.env.MANAGER_USERNAME || "admin").trim().toLowerCase();
   const managerPassword = process.env.MANAGER_PASSWORD || "admin123";
 
-  if (typedUsername === managerUsername && password === managerPassword) {
-    return res.json({
-      success: true,
-      role: "manager",
-      user: { name: "المدير العام (نبيل الزبير)", email: "nabilalzubair@gmail.com" }
-    });
-  }
+  const isGM = (typedUsername === managerUsername);
 
-  // 2. فحص المناديب من خلال قاعدة بيانات الموظفين المحلية المعتمدة
-  const foundRep = mockEmployeesList.find((emp: any) => {
+  // 2. البحث عن المندوب باسم المستخدم
+  const foundRepByUsername = mockEmployeesList.find((emp: any) => {
     const empUser = String(emp["اسم المستخدم"] || "").trim().toLowerCase();
-    const empPass = String(emp["كلمة المرور"] || "").trim();
-    return empUser === typedUsername && empPass === password;
+    return empUser === typedUsername;
   });
 
-  if (foundRep) {
-    return res.json({
-      success: true,
-      role: "rep",
-      user: { 
-        id: foundRep.id,
-        name: foundRep["الاسم"], 
-        email: foundRep["البريد الإلكتروني"] || `${typedUsername}@expotime.com` 
-      }
+  // إذا لم يكن المدير ولا الموظف موجودين
+  if (!isGM && !foundRepByUsername) {
+    return res.status(401).json({ 
+      error: "اسم المستخدم غير صحيح أو غير مسجل في النظام 🔍. يرجى التأكد من كتابة الاسم الصحيح أو مراجعة الإدارة." 
     });
   }
 
-  return res.status(401).json({ error: "اسم المستخدم أو كلمة المرور غير صحيحة، يرجى التواصل مع المدير العام لتعديل بيانات دخولك." });
+  // إذا كان المستخدم هو المدير العام
+  if (isGM) {
+    if (password === managerPassword) {
+      return res.json({
+        success: true,
+        role: "manager",
+        user: { name: "المدير العام (نبيل الزبير)", email: "nabilalzubair@gmail.com" }
+      });
+    } else {
+      return res.status(401).json({ 
+        error: "كلمة المرور التي أدخلتها غير صحيحة 🔑. يرجى التأكد من كلمة المرور الخاصة بحساب المدير." 
+      });
+    }
+  }
+
+  // إذا كان المستخدم هو أحد المناديب المعتمدين
+  if (foundRepByUsername) {
+    const empPass = String(foundRepByUsername["كلمة المرور"] || "").trim();
+    if (password === empPass) {
+      return res.json({
+        success: true,
+        role: "rep",
+        user: { 
+          id: foundRepByUsername.id,
+          name: foundRepByUsername["الاسم"], 
+          email: foundRepByUsername["البريد الإلكتروني"] || `${typedUsername}@expotime.com` 
+        }
+      });
+    } else {
+      return res.status(401).json({ 
+        error: "كلمة المرور التي أدخلتها غير صحيحة 🔑. يرجى التحقق من كلمة المرور والمحاولة مرة أخرى." 
+      });
+    }
+  }
+
+  return res.status(401).json({ error: "حدث خطأ غير متوقع أثناء تسجيل الدخول." });
 });
 
 // دالة لجلب كافة الشركات من Baserow مع دعم الصفحات المتعددة للتأكد من فحص التكرار بدقة
@@ -2371,6 +2577,39 @@ app.post("/api/companies/:id/chat", (req, res) => {
   }
 
   return res.json({ success: true, message: newMessage });
+});
+
+
+// ------------------------------------------------------------------------
+// روابط دردشة زملاء العمل المشتركة ومناقشة الحالات وتبادل العملاء
+// ------------------------------------------------------------------------
+
+// جلب كافة رسائل دردشة زملاء العمل
+app.get("/api/workspace-chats", (req, res) => {
+  return res.json(mockWorkspaceChats);
+});
+
+// إرسال رسالة دردشة جديدة لزملاء العمل
+app.post("/api/workspace-chats", (req, res) => {
+  const { sender, message, type, companyName } = req.body;
+
+  if (!sender || !message) {
+    return res.status(400).json({ error: "الرجاء إدخال اسم المرسل ومحتوى الرسالة ⚠️" });
+  }
+
+  const newMessage = {
+    id: `wmsg-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    sender,
+    message,
+    type: type || "general",
+    companyName: companyName || "",
+    timestamp: new Date().toISOString()
+  };
+
+  mockWorkspaceChats.push(newMessage);
+  saveWorkspaceChatsLocal();
+
+  return res.json({ success: true, data: newMessage });
 });
 
 
