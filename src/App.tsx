@@ -43,7 +43,9 @@ import {
   Save,
   Sparkles,
   Cpu,
-  CheckCheck
+  CheckCheck,
+  Printer,
+  FileText
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import * as XLSX from "xlsx";
@@ -125,9 +127,9 @@ export default function App() {
   // حالات تسجيل العمليات والولوج الأمنية الموحدة باليوزر والباسورد
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [activeTab, setActiveTab] = useState<"dashboard" | "companies" | "import" | "users" | "diagnostics" | "accounting" | "reps">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "companies" | "import" | "users" | "diagnostics" | "accounting" | "reps" | "exhibitions">("dashboard");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const selectTab = (tab: typeof activeTab) => {
+  const selectTab = (tab: any) => {
     setActiveTab(tab);
     setIsSidebarOpen(false);
   };
@@ -167,6 +169,7 @@ export default function App() {
   
   // وضعية المدير لعرض الإحصائيات الشاملة والتحليلات
   const [isManagerMode, setIsManagerMode] = useState(false);
+  const [userRole, setUserRole] = useState<"manager" | "sales_manager" | "rep">("rep");
   const [managerCompanies, setManagerCompanies] = useState<Company[]>([]);
   const [managerFollowups, setManagerFollowups] = useState<any[]>([]);
   const [loadingManagerData, setLoadingManagerData] = useState(false);
@@ -198,6 +201,12 @@ export default function App() {
   const [showConfigGuide, setShowConfigGuide] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  // حالات قائمة المهام اليومية (Daily Tasks Tracker)
+  const [taskCompanyToLog, setTaskCompanyToLog] = useState<Company | null>(null);
+  const [taskLogNotes, setTaskLogNotes] = useState("");
+  const [taskLogStatus, setTaskLogStatus] = useState("تم التواصل");
+  const [isLoggingTask, setIsLoggingTask] = useState(false);
 
   // حالات فتح لوحة الإضافة / الاستيراد
   const [showAddPanel, setShowAddPanel] = useState(false);
@@ -285,6 +294,20 @@ export default function App() {
   const [newCompanyNotes, setNewCompanyNotes] = useState("");
   const [newCompanySource, setNewCompanySource] = useState("إدخال يدوي");
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
+
+  // حالات المعارض وإدارة طلبات نقل وإسناد العملاء مكرري التسجيل
+  const [exhibitions, setExhibitions] = useState<any[]>([]);
+  const [transferRequests, setTransferRequests] = useState<any[]>([]);
+  const [exhibitionRequests, setExhibitionRequests] = useState<any[]>([]);
+  const [loadingExhibitions, setLoadingExhibitions] = useState(false);
+  const [loadingTransferRequests, setLoadingTransferRequests] = useState(false);
+  const [loadingExhibitionRequests, setLoadingExhibitionRequests] = useState(false);
+
+  // حالة العميل المكرر لإظهار نافذة مخصصة تقدم طلب نقل الإسناد
+  const [duplicateCompanyInfo, setDuplicateCompanyInfo] = useState<any | null>(null);
+  const [transferRequestReason, setTransferRequestReason] = useState("");
+  const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
+  const [selectedRepForReport, setSelectedRepForReport] = useState<any | null>(null);
 
   // توليد كود الشركة تلقائياً عند الدخول لشاشة الإدخال اليدوي
   useEffect(() => {
@@ -492,6 +515,51 @@ export default function App() {
       }
     } catch (err) {
       console.error("فشل جلب قائمة الموظفين", err);
+    }
+  };
+
+  const fetchExhibitions = async () => {
+    setLoadingExhibitions(true);
+    try {
+      const res = await fetch("/api/exhibitions");
+      if (res.ok) {
+        const data = await res.json();
+        setExhibitions(data);
+      }
+    } catch (err) {
+      console.error("فشل جلب المعارض", err);
+    } finally {
+      setLoadingExhibitions(false);
+    }
+  };
+
+  const fetchTransferRequests = async () => {
+    setLoadingTransferRequests(true);
+    try {
+      const res = await fetch("/api/transfer-requests");
+      if (res.ok) {
+        const data = await res.json();
+        setTransferRequests(data);
+      }
+    } catch (err) {
+      console.error("فشل جلب طلبات نقل الإسناد", err);
+    } finally {
+      setLoadingTransferRequests(false);
+    }
+  };
+
+  const fetchExhibitionRequests = async () => {
+    setLoadingExhibitionRequests(true);
+    try {
+      const res = await fetch("/api/exhibition-requests");
+      if (res.ok) {
+        const data = await res.json();
+        setExhibitionRequests(data);
+      }
+    } catch (err) {
+      console.error("فشل جلب طلبات ربط المعارض", err);
+    } finally {
+      setLoadingExhibitionRequests(false);
     }
   };
 
@@ -724,7 +792,7 @@ export default function App() {
             "الجوال الرئيسي": newCompanyPhone,
             "البريد الإلكتروني": newCompanyEmail,
             "الحالة": newCompanyStatus || "جديد",
-            "مسؤول المبيعات": newCompanyRep || selectedRep || "مؤيدة",
+            "مسؤول المبيعات": newCompanyRep || "غير مسند",
             "الأولوية": newCompanyPriority || "متوسطة",
             "ملاحظات": newCompanyNotes,
             "المصدر": newCompanySource || "إدخال يدوي",
@@ -750,6 +818,8 @@ export default function App() {
         } else {
           fetchCompanies(selectedRep);
         }
+      } else if (result.error === "DUPLICATE_COMPANY" && result.existingCompany) {
+        setDuplicateCompanyInfo(result.existingCompany);
       } else {
         alert(result.message || result.error || "فشل إضافة الشركة.");
       }
@@ -797,6 +867,18 @@ export default function App() {
     }
   };
 
+  const handleStartEditEmployee = (emp: any) => {
+    setEditingEmployeeId(emp.id);
+    setNewEmpName(emp["الاسم"] || "");
+    setNewEmpDept(emp["القسم"] || "المبيعات");
+    setNewEmpEmail(emp["البريد الإلكتروني"] || "");
+    setNewEmpPhone(emp["الجوال"] || "");
+    setNewEmpUsername(emp["اسم المستخدم"] || "");
+    setNewEmpPassword(emp["كلمة المرور"] || "");
+    setEmpActionError("");
+    setEmpActionSuccess("");
+  };
+
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEmpName.trim() || !newEmpEmail.trim() || !newEmpUsername.trim() || !newEmpPassword.trim()) {
@@ -808,8 +890,12 @@ export default function App() {
     setEmpActionSuccess("");
     setLatestWhatsappUrl("");
     try {
-      const response = await fetch("/api/employees", {
-        method: "POST",
+      const isEdit = editingEmployeeId !== null;
+      const url = isEdit ? `/api/employees/${editingEmployeeId}` : "/api/employees";
+      const method = isEdit ? "PATCH" : "POST";
+
+      const response = await fetch(url, {
+        method: method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: newEmpName,
@@ -822,7 +908,7 @@ export default function App() {
       });
       const data = await response.json();
       if (response.ok) {
-        setEmpActionSuccess(`تم إضافة المندوب ${newEmpName} بنجاح!`);
+        setEmpActionSuccess(isEdit ? `تم تعديل بيانات المندوب ${newEmpName} بنجاح!` : `تم إضافة المندوب ${newEmpName} بنجاح!`);
         if (data.whatsappUrl) {
           setLatestWhatsappUrl(data.whatsappUrl);
         }
@@ -832,12 +918,13 @@ export default function App() {
         setNewEmpDept("المبيعات");
         setNewEmpUsername("");
         setNewEmpPassword("");
+        setEditingEmployeeId(null);
         fetchEmployees();
       } else {
-        setEmpActionError(data.error || "فشل إضافة المندوب.");
+        setEmpActionError(data.error || (isEdit ? "فشل تعديل المندوب." : "فشل إضافة المندوب."));
       }
     } catch (err) {
-      console.error("خطأ أثناء إضافة المندوب", err);
+      console.error("خطأ أثناء معالجة بيانات المندوب", err);
       setEmpActionError("حدث خطأ في الشبكة أثناء الاتصال بالخادم.");
     } finally {
       setEmpActionLoading(false);
@@ -897,6 +984,10 @@ export default function App() {
   };
 
   const handleDeleteCompany = async (companyId: string | number, companyName: string) => {
+    if (userRole === "sales_manager") {
+      alert("عذراً، لا تمتلك صلاحية حذف العملاء. هذه الصلاحية مخولة للمدير العام فقط 🔒.");
+      return;
+    }
     if (!confirm(`هل أنت متأكد من رغبتك في حذف العميل: ${companyName}؟`)) {
       return;
     }
@@ -1100,12 +1191,20 @@ export default function App() {
     fetchAppSettings();
     fetchQuotations();
     fetchAccountingRequests();
+    fetchExhibitions();
+    fetchTransferRequests();
+    fetchExhibitionRequests();
   }, []);
 
   // جلب الطلبات المحاسبية عند تفعيل التبويب المخصص لها
   useEffect(() => {
     if (activeTab === "accounting") {
       fetchAccountingRequests();
+      fetchTransferRequests();
+    } else if (activeTab === "exhibitions") {
+      fetchExhibitions();
+      fetchTransferRequests();
+      fetchExhibitionRequests();
     }
   }, [activeTab]);
 
@@ -1187,12 +1286,20 @@ export default function App() {
         if (data.role === "manager") {
           setIsLoggedIn(true);
           setIsManagerMode(true);
+          setUserRole("manager");
           setSuccessMsg("مرحباً بك مجدداً يا حضرة المدير العام! تم تسجيل الدخول الآمن بـ Google بنجاح 🟢");
+          fetchAllManagerData();
+        } else if (data.role === "sales_manager") {
+          setIsLoggedIn(true);
+          setIsManagerMode(true);
+          setUserRole("sales_manager");
+          setSuccessMsg("مرحباً بك مجدداً يا حضرة مدير المبيعات! تم تسجيل الدخول الآمن بـ Google بنجاح 🟢");
           fetchAllManagerData();
         } else if (data.role === "rep") {
           setSelectedRep(data.user.name);
           setIsLoggedIn(true);
           setIsManagerMode(false);
+          setUserRole("rep");
           setNewCompanyRep(data.user.name);
           setSuccessMsg(`مرحباً بك مجدداً يا ${data.user.name}! تم تسجيل دخولك الآمن بـ Google بنجاح 🟢`);
           fetchCompanies(data.user.name);
@@ -1762,9 +1869,14 @@ export default function App() {
       if (response.ok) {
         const data = await response.json();
         setIsLoggedIn(true);
+        setUserRole(data.role);
         if (data.role === "manager") {
           setIsManagerMode(true);
           setSuccessMsg("مرحباً بك مجدداً يا حضرة المدير العام! تم تسجيل الدخول الآمن بنجاح 🟢");
+          fetchAllManagerData();
+        } else if (data.role === "sales_manager") {
+          setIsManagerMode(true);
+          setSuccessMsg("مرحباً بك مجدداً يا حضرة مدير المبيعات! تم تسجيل الدخول الآمن بنجاح 🟢");
           fetchAllManagerData();
         } else {
           setSelectedRep(data.user.name);
@@ -1938,10 +2050,14 @@ export default function App() {
                 {/* بطاقة المستخدم المتصل */}
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col gap-1 text-right select-none">
                   <span className="text-[9px] text-[#2563eb] font-extrabold uppercase tracking-wider">
-                    {isManagerMode ? "مدير ومسؤول النظام" : "مندوب المبيعات المعتمد"}
+                    {isManagerMode 
+                      ? (userRole === "sales_manager" ? "مدير المبيعات المعتمد" : "مدير ومسؤول النظام") 
+                      : "مندوب المبيعات المعتمد"}
                   </span>
                   <div className="text-xs font-black text-slate-800 truncate">
-                    {isManagerMode ? "نبيل الزبير" : selectedRep}
+                    {isManagerMode 
+                      ? (userRole === "sales_manager" ? "مدير المبيعات" : "نبيل الزبير") 
+                      : selectedRep}
                   </div>
                   {!isManagerMode && repEmail && (
                     <div className="text-[9px] text-slate-500 font-mono truncate pt-0.5">
@@ -1959,137 +2075,125 @@ export default function App() {
                   <>
                     <button
                       onClick={() => selectTab("dashboard")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "dashboard" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold"}`}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "dashboard" ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4 animate-pulse" />
-                        <span>لوحة الأداء والتحليلات</span>
-                      </div>
+                      <span>لوحة الأداء والتحليلات</span>
                     </button>
 
                     <button
                       onClick={() => selectTab("companies")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "companies" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold"}`}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "companies" ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <Building2 className="w-4 h-4" />
-                        <span>دليل الشركات والعملاء</span>
-                      </div>
-                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${activeTab === "companies" ? "bg-blue-700 text-white" : "bg-slate-100 text-slate-655"}`}>
+                      <span>دليل الشركات والعملاء</span>
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${activeTab === "companies" ? "bg-blue-200 text-blue-800" : "bg-slate-100 text-slate-600"}`}>
                         {managerCompanies.length}
                       </span>
                     </button>
 
                     <button
                       onClick={() => selectTab("import")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "import" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold"}`}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "import" ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <Plus className="w-4 h-4" />
-                        <span>إكسل وإضافة عملاء</span>
-                      </div>
-                      <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${activeTab === "import" ? "bg-blue-700 text-white" : "bg-emerald-50 text-emerald-700"}`}>XLSX</span>
+                      <span>إكسل وإضافة عملاء</span>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${activeTab === "import" ? "bg-blue-200 text-blue-800" : "bg-emerald-50 text-emerald-700"}`}>XLSX</span>
                     </button>
 
-                    <button
-                      onClick={() => selectTab("users")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "users" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Users className="w-4 h-4 animate-bounce" style={{ animationDuration: "3s" }} />
+                    {userRole !== "sales_manager" && (
+                      <button
+                        onClick={() => selectTab("users")}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "users" ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
+                      >
                         <span>تسجيل وإلغاء المستخدمين</span>
-                      </div>
-                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${activeTab === "users" ? "bg-blue-700 text-white" : "bg-slate-100 text-slate-655"}`}>
-                        {employees.length}
-                      </span>
-                    </button>
+                        <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${activeTab === "users" ? "bg-blue-200 text-blue-800" : "bg-slate-100 text-slate-600"}`}>
+                          {employees.length}
+                        </span>
+                      </button>
+                    )}
 
                     <button
                       onClick={() => selectTab("reps")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "reps" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold"}`}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "reps" ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <UserCheck className="w-4 h-4 text-blue-500" />
-                        <span>صفحة ومتابعة المناديب 💼</span>
-                      </div>
-                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${activeTab === "reps" ? "bg-blue-700 text-white" : "bg-slate-100 text-slate-655"}`}>
+                      <span>صفحة ومتابعة المناديب 💼</span>
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${activeTab === "reps" ? "bg-blue-200 text-blue-800" : "bg-slate-100 text-slate-600"}`}>
                         {employees.length}
                       </span>
                     </button>
 
                     <button
                       onClick={() => selectTab("accounting")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "accounting" ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/10" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "accounting" ? "bg-emerald-50 text-emerald-800 border-r-4 border-emerald-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
-                        <span>طلبات المحاسبة والمستندات 📊</span>
-                      </div>
+                      <span>طلبات المحاسبة والمستندات 📊</span>
                     </button>
 
                     <button
-                      onClick={() => selectTab("diagnostics")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "diagnostics" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                      onClick={() => selectTab("exhibitions")}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "exhibitions" ? "bg-amber-50 text-amber-800 border-r-4 border-amber-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <FileSpreadsheet className="w-4 h-4" />
-                        <span>لوحة التحكم وإعدادات الربط ⚙️</span>
-                      </div>
+                      <span>إدارة المعارض وتكليف المناديب 🎪</span>
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${activeTab === "exhibitions" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>
+                        {exhibitions.length}
+                      </span>
                     </button>
+
+                    {userRole !== "sales_manager" && (
+                      <button
+                        onClick={() => selectTab("diagnostics")}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "diagnostics" ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
+                      >
+                        <span>لوحة التحكم وإعدادات الربط ⚙️</span>
+                      </button>
+                    )}
                   </>
                 ) : (
                   <>
                     <button
                       onClick={() => selectTab("dashboard")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "dashboard" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold"}`}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "dashboard" ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4" />
-                        <span>لوحة الأداء والمتابعة</span>
-                      </div>
+                      <span>لوحة الأداء والمتابعة</span>
                     </button>
 
                     <button
                       onClick={() => selectTab("companies")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "companies" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-semibold"}`}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "companies" ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <Building2 className="w-4 h-4" />
-                        <span>شركاتي وقائمتي المبيعية</span>
-                      </div>
-                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${activeTab === "companies" ? "bg-blue-700 text-white" : "bg-slate-100 text-slate-655"}`}>
+                      <span>شركاتي وقائمتي المبيعية</span>
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${activeTab === "companies" ? "bg-blue-200 text-blue-800" : "bg-slate-100 text-slate-600"}`}>
                         {companies.length}
                       </span>
                     </button>
 
                     <button
                       onClick={() => selectTab("accounting")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "accounting" ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/10" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "accounting" ? "bg-emerald-50 text-emerald-800 border-r-4 border-emerald-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
-                        <span>طلبات المحاسبة والمستندات 📊</span>
-                      </div>
+                      <span>طلبات المحاسبة والمستندات 📊</span>
                     </button>
 
                     <button
                       onClick={() => selectTab("import")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "import" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "import" ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <Plus className="w-4 h-4" />
-                        <span>إضافة عميل يدوياً</span>
-                      </div>
+                      <span>إضافة عميل يدوياً</span>
                     </button>
 
                     <button
                       onClick={() => selectTab("reps")}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all cursor-pointer ${activeTab === "reps" ? "bg-blue-600 text-white shadow-md shadow-blue-600/10 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "reps" ? "bg-blue-50 text-blue-700 border-r-4 border-blue-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
                     >
-                      <div className="flex items-center gap-2">
-                        <UserCheck className="w-4 h-4 text-blue-500" />
-                        <span>دليل زملاء العمل ومتابعة الحالات 💼</span>
-                      </div>
+                      <span>دليل زملاء العمل ومتابعة الحالات 💼</span>
+                    </button>
+
+                    <button
+                      onClick={() => selectTab("exhibitions")}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${activeTab === "exhibitions" ? "bg-amber-50 text-amber-800 border-r-4 border-amber-600 font-bold" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 border-r-4 border-transparent font-semibold"}`}
+                    >
+                      <span>قائمة المعارض وتكليف المبيعات 🎪</span>
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md ${activeTab === "exhibitions" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>
+                        {exhibitions.length}
+                      </span>
                     </button>
                   </>
                 )}
@@ -2534,13 +2638,14 @@ export default function App() {
                       </div>
 
                       <div className="space-y-1">
-                        <label className="font-extrabold text-slate-700">كود الشركة (إذا لم يحدد، يتم توليده تلقائياً)</label>
+                        <label className="font-extrabold text-slate-700">كود الشركة (يتم توليده تلقائياً 🔒)</label>
                         <input 
                           type="text" 
                           value={newCompanyCode} 
-                          onChange={(e) => setNewCompanyCode(e.target.value)}
-                          placeholder="مثال: COMP-115"
-                          className="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white text-slate-800"
+                          disabled
+                          readOnly
+                          placeholder="سيتم توليد الكود تلقائياً..."
+                          className="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-100 text-slate-500 cursor-not-allowed font-mono"
                         />
                       </div>
 
@@ -2597,7 +2702,7 @@ export default function App() {
                           onChange={(e) => setNewCompanyRep(e.target.value)}
                           className="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white text-slate-800"
                         >
-                          <option value="">حدد مندوب المبيعات</option>
+                          <option value="">بدون إسناد (عميل مفتوح للجميع) 🔓</option>
                           {employees.length > 0 ? (
                             employees.map((emp) => (
                               <option key={emp.id} value={emp["الاسم"]}>
@@ -3161,7 +3266,9 @@ export default function App() {
                   <div className="lg:col-span-1 bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
                     <div className="flex items-center gap-1.5 border-b border-slate-200 pb-2">
                       <UserPlus className="w-4 h-4 text-blue-600" />
-                      <h4 className="font-extrabold text-xs text-slate-800">تسجيل وتفويض مندوب جديد</h4>
+                      <h4 className="font-extrabold text-xs text-slate-800">
+                        {editingEmployeeId !== null ? "تعديل بيانات المندوب" : "تسجيل وتفويض مندوب جديد"}
+                      </h4>
                     </div>
 
                     {empActionError && (
@@ -3268,14 +3375,41 @@ export default function App() {
                         </div>
                       </div>
 
-                      <button
-                        type="submit"
-                        disabled={empActionLoading}
-                        className="w-full font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 rounded-xl py-3.5 shadow-md shadow-blue-600/10 transition-all flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <UserPlus className="w-4 h-4" />
-                        <span>{empActionLoading ? "جاري الحفظ والمزامنة..." : "تأكيد إضافة وتفويض المندوب"}</span>
-                      </button>
+                      <div className="flex gap-2">
+                        {editingEmployeeId !== null && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingEmployeeId(null);
+                              setNewEmpName("");
+                              setNewEmpEmail("");
+                              setNewEmpPhone("");
+                              setNewEmpDept("المبيعات");
+                              setNewEmpUsername("");
+                              setNewEmpPassword("");
+                              setEmpActionError("");
+                              setEmpActionSuccess("");
+                            }}
+                            className="flex-1 font-bold text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl py-3.5 transition-all flex items-center justify-center gap-1 cursor-pointer border border-slate-200"
+                          >
+                            <span>إلغاء التعديل</span>
+                          </button>
+                        )}
+                        <button
+                          type="submit"
+                          disabled={empActionLoading}
+                          className="flex-2 w-full font-bold text-xs text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 rounded-xl py-3.5 shadow-md shadow-blue-600/10 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                          <UserPlus className="w-4 h-4" />
+                          <span>
+                            {empActionLoading 
+                              ? "جاري الحفظ والمزامنة..." 
+                              : editingEmployeeId !== null 
+                                ? "تأكيد تعديل المندوب" 
+                                : "تأكيد إضافة وتفويض المندوب"}
+                          </span>
+                        </button>
+                      </div>
                     </form>
                   </div>
 
@@ -3318,15 +3452,26 @@ export default function App() {
                             </div>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteEmployee(emp.id, emp["الاسم"])}
-                            disabled={empActionLoading}
-                            className="p-2.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all shrink-0 cursor-pointer text-left"
-                            title="إلغاء المندوب وحذفه نهائياً"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditEmployee(emp)}
+                              disabled={empActionLoading}
+                              className="p-2.5 text-blue-600 hover:text-blue-850 hover:bg-blue-50 rounded-lg transition-all shrink-0 cursor-pointer text-left"
+                              title="تعديل بيانات المندوب"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteEmployee(emp.id, emp["الاسم"])}
+                              disabled={empActionLoading}
+                              className="p-2.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all shrink-0 cursor-pointer text-left"
+                              title="إلغاء المندوب وحذفه نهائياً"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       ))}
 
@@ -3425,15 +3570,46 @@ export default function App() {
                           </div>
                         </div>
 
-                        <button
-                          onClick={() => {
-                            setSelectedRepForDetails(emp);
-                            setActiveChatCompanyId(null);
-                          }}
-                          className="w-full text-xs font-bold text-blue-600 bg-blue-50/50 hover:bg-blue-600 hover:text-white rounded-xl py-2.5 transition-all text-center border border-blue-100 cursor-pointer"
-                        >
-                          📂 فتح كرت المندوب ومتابعة عملائه ({total})
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedRepForDetails(emp);
+                              setActiveChatCompanyId(null);
+                            }}
+                            className="flex-1 text-xs font-bold text-blue-600 bg-blue-50/50 hover:bg-blue-600 hover:text-white rounded-xl py-2.5 transition-all text-center border border-blue-100 cursor-pointer"
+                          >
+                            📂 كرت المندوب ومتابعة عملائه ({total})
+                          </button>
+                          <button
+                            onClick={() => {
+                              const row = delegateAnalytics.find(r => getSafeString(r.delegate).trim().toLowerCase() === getSafeString(emp["الاسم"]).trim().toLowerCase());
+                              if (row) {
+                                setSelectedRepForReport(row);
+                              } else {
+                                setSelectedRepForReport({
+                                  delegate: emp["الاسم"],
+                                  totalCompanies: total,
+                                  totalContacted: 0,
+                                  profilesSent: 0,
+                                  designsRequested: 0,
+                                  quotesSent: 0,
+                                  signedAgreements: approved,
+                                  uninterested: rejected,
+                                  conversionRate: total > 0 ? Math.round((approved / total) * 100) : 0,
+                                  weeklyActionsCount: 0,
+                                  monthlyActionsCount: 0,
+                                  weeklyRating: "خامل ومقصر 💤",
+                                  monthlyRating: "أداء خامل ⚠️",
+                                  effortScore: 0
+                                });
+                              }
+                            }}
+                            className="px-3 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-600 hover:text-white rounded-xl py-2.5 transition-all text-center border border-red-100 cursor-pointer flex items-center justify-center shrink-0"
+                            title="توليد تقرير الأداء الشهري PDF"
+                          >
+                            <Printer className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -3887,6 +4063,338 @@ export default function App() {
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* واجهة المعارض وتكليف المناديب */}
+            {activeTab === "exhibitions" && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm text-right space-y-6 animate-none"
+                id="exhibitions-management-panel"
+              >
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 justify-start font-sans">
+                      <MapPin className="w-5 h-5 text-amber-500" />
+                      <span>دليل المعارض وتكليف المبيعات المعتمد 🎪</span>
+                    </h3>
+                    <p className="text-[11px] text-slate-500 font-sans">
+                      متابعة المعارض النشطة، تخصيص وإسناد المندوب المسؤول من الإدارة، وتتبع طلبات ربط المعارض ونقل العملاء.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isManagerMode && (
+                      <button
+                        onClick={() => {
+                          const name = prompt("أدخل اسم المعرض الجديد:");
+                          if (!name) return;
+                          const city = prompt("المدينة (مثال: الرياض، جدة):") || "الرياض";
+                          const date = prompt("التاريخ أو الموسم (مثال: أكتوبر 2026):") || "";
+                          const rep = prompt("المندوب المسؤول (يمكن تركه فارغاً):") || "غير مسند";
+                          
+                          fetch("/api/exhibitions", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ name, city, date, rep })
+                          })
+                          .then(r => r.json())
+                          .then(() => {
+                            fetchExhibitions();
+                            alert("تم إضافة المعرض بنجاح!");
+                          });
+                        }}
+                        className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all flex items-center gap-1 cursor-pointer animate-none"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>إضافة معرض جديد</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        fetchExhibitions();
+                        fetchTransferRequests();
+                        fetchExhibitionRequests();
+                      }}
+                      className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer animate-none"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>تحديث البيانات</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Grid for Exhibitions List */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {exhibitions.length === 0 ? (
+                    <div className="col-span-full py-10 text-center text-slate-400 text-xs font-bold">
+                      لا يوجد معارض مسجلة حالياً.
+                    </div>
+                  ) : (
+                    exhibitions.map((ex) => {
+                      const isAssignedToMe = String(ex["المندوب المسؤول"]).trim() === String(selectedRep || "").trim();
+                      const isUnassigned = !ex["المندوب المسؤول"] || ex["المندوب المسؤول"] === "غير مسند";
+                      
+                      return (
+                        <div key={ex.id} className="border border-slate-150 rounded-xl p-4 bg-slate-50 space-y-3 relative overflow-hidden transition-all hover:shadow-md hover:border-slate-300">
+                          {isAssignedToMe && (
+                            <div className="absolute top-0 left-0 bg-emerald-500 text-white text-[9px] font-black px-2.5 py-0.5 rounded-br-lg shadow-sm">
+                              مسؤوليتك ⭐️
+                            </div>
+                          )}
+                          <div className="space-y-1 text-right">
+                            <h4 className="text-xs font-black text-slate-800">{ex["اسم المعرض"]}</h4>
+                            <div className="flex items-center gap-3 text-[10px] text-slate-500 font-sans justify-end">
+                              <span>📍 {ex["المدينة"]}</span>
+                              <span>📅 {ex["التاريخ"] || "غير محدد"}</span>
+                            </div>
+                          </div>
+
+                          <div className="bg-white border border-slate-100 rounded-lg p-2.5 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9px] text-slate-400 font-bold">المندوب المسؤول:</span>
+                              {isUnassigned ? (
+                                <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded font-black flex items-center gap-0.5">
+                                  🔓 عميل مفتوح للجميع
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-black">
+                                  👤 {ex["المندوب المسؤول"]}
+                                </span>
+                              )}
+                            </div>
+
+                            {isManagerMode ? (
+                              <div className="mt-2 pt-2 border-t border-slate-100 space-y-1 text-right">
+                                <label className="text-[9px] text-slate-400 font-bold block">تغيير المسؤولية (الإدارة):</label>
+                                <select
+                                  value={ex["المندوب المسؤول"] || "غير مسند"}
+                                  onChange={(e) => {
+                                    const repName = e.target.value;
+                                    fetch(`/api/exhibitions/${ex.id}`, {
+                                      method: "PATCH",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ rep: repName })
+                                    })
+                                    .then(r => r.json())
+                                    .then(() => {
+                                      fetchExhibitions();
+                                    });
+                                  }}
+                                  className="w-full text-[11px] font-bold rounded border border-slate-200 px-2 py-1 bg-white cursor-pointer"
+                                >
+                                  <option value="غير مسند">🔓 عميل مفتوح (غير مسند)</option>
+                                  {employees.map((emp: any) => (
+                                    <option key={emp.id} value={emp["الاسم"] || emp.name}>{emp["الاسم"] || emp.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            ) : (
+                              !isAssignedToMe && (
+                                <button
+                                  onClick={() => {
+                                    const notes = prompt("أدخل ملاحظات إضافية لتقديم الطلب للمدير:");
+                                    if (notes === null) return;
+                                    
+                                    fetch("/api/exhibition-requests", {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        exhibitionId: ex.id,
+                                        exhibitionName: ex["اسم المعرض"],
+                                        repName: selectedRep,
+                                        notes
+                                      })
+                                    })
+                                    .then(async r => {
+                                      const data = await r.json();
+                                      if (r.ok) {
+                                        alert("تم إرسال طلب ربط المعرض للإدارة بنجاح! 📤");
+                                        fetchExhibitionRequests();
+                                      } else {
+                                        alert(data.error || "فشل إرسال الطلب.");
+                                      }
+                                    });
+                                  }}
+                                  className="w-full mt-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-[10px] font-black py-1.5 rounded transition-all flex items-center justify-center gap-1 cursor-pointer animate-none"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>تقديم طلب ربط هذا المعرض بحسابي 📥</span>
+                                </button>
+                              )
+                            )}
+                          </div>
+
+                          {isManagerMode && (
+                            <button
+                              onClick={() => {
+                                if (confirm("هل أنت متأكد من حذف هذا المعرض؟")) {
+                                  fetch(`/api/exhibitions/${ex.id}`, { method: "DELETE" })
+                                  .then(() => fetchExhibitions());
+                                }
+                              }}
+                              className="absolute bottom-2 left-2 text-slate-300 hover:text-red-500 transition-colors cursor-pointer"
+                              title="حذف المعرض"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Manager Approvals Dashboard */}
+                {isManagerMode && (
+                  <div className="pt-6 border-t border-slate-150 space-y-6">
+                    <h4 className="text-xs font-black text-slate-800 border-b border-slate-100 pb-2 text-right">📂 لوحة مراجعة طلبات التكليف ونقل الإسناد (الإدارة)</h4>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Company Transfer Requests */}
+                      <div className="border border-slate-150 rounded-xl p-4 bg-slate-50 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h5 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <UserCheck className="w-4 h-4 text-blue-500" />
+                            <span>طلبات نقل إسناد العملاء مكرري التسجيل ({transferRequests.filter(r => r.status === "pending").length})</span>
+                          </h5>
+                        </div>
+
+                        <div className="space-y-2 max-h-60 overflow-y-auto">
+                          {transferRequests.length === 0 ? (
+                            <div className="text-center py-6 text-[10px] text-slate-400 font-bold">لا يوجد طلبات نقل إسناد حالياً.</div>
+                          ) : (
+                            transferRequests.map((req) => (
+                              <div key={req.id} className="bg-white border border-slate-100 p-3 rounded-lg flex flex-col justify-between gap-2 text-right">
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-black text-blue-700">{req.companyName}</span>
+                                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${
+                                      req.status === "pending" ? "bg-amber-50 text-amber-600" :
+                                      req.status === "approved" ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
+                                    }`}>
+                                      {req.status === "pending" ? "قيد الانتظار" : req.status === "approved" ? "مقبول" : "مرفوض"}
+                                    </span>
+                                  </div>
+                                  <div className="text-[9px] text-slate-500 space-y-0.5">
+                                    <p>العميل مسجل حالياً لدى: <strong className="text-slate-700">{req.fromRep}</strong></p>
+                                    <p>المندوب الطالب للنقل: <strong className="text-slate-700">{req.toRep}</strong></p>
+                                    {req.reason && <p className="bg-slate-50 p-1.5 rounded border border-slate-100 mt-1 italic">السبب: {req.reason}</p>}
+                                  </div>
+                                </div>
+
+                                {req.status === "pending" && (
+                                  <div className="flex items-center gap-2 mt-1 justify-end">
+                                    <button
+                                      onClick={() => {
+                                        fetch(`/api/transfer-requests/${req.id}`, {
+                                          method: "PATCH",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ status: "approved" })
+                                        })
+                                        .then(() => {
+                                          fetchTransferRequests();
+                                          fetchAllManagerData();
+                                        });
+                                      }}
+                                      className="bg-emerald-500 hover:bg-emerald-600 text-white text-[9px] font-bold px-2 py-1 rounded cursor-pointer animate-none"
+                                    >
+                                      قبول ونقل الإسناد ✅
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        fetch(`/api/transfer-requests/${req.id}`, {
+                                          method: "PATCH",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ status: "rejected" })
+                                        })
+                                        .then(() => fetchTransferRequests());
+                                      }}
+                                      className="bg-red-500 hover:bg-red-600 text-white text-[9px] font-bold px-2 py-1 rounded cursor-pointer animate-none"
+                                    >
+                                      رفض الطلب ❌
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Exhibition Assignment Requests */}
+                      <div className="border border-slate-150 rounded-xl p-4 bg-slate-50 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h5 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <MapPin className="w-4 h-4 text-amber-500" />
+                            <span>طلبات ربط المعارض بالمناديب ({exhibitionRequests.filter(r => r.status === "pending").length})</span>
+                          </h5>
+                        </div>
+
+                        <div className="space-y-2 max-h-60 overflow-y-auto">
+                          {exhibitionRequests.length === 0 ? (
+                            <div className="text-center py-6 text-[10px] text-slate-400 font-bold">لا يوجد طلبات ربط معارض حالياً.</div>
+                          ) : (
+                            exhibitionRequests.map((req) => (
+                              <div key={req.id} className="bg-white border border-slate-100 p-3 rounded-lg flex flex-col justify-between gap-2 text-right">
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-black text-amber-700">{req.exhibitionName}</span>
+                                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${
+                                      req.status === "pending" ? "bg-amber-50 text-amber-600" :
+                                      req.status === "approved" ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
+                                    }`}>
+                                      {req.status === "pending" ? "قيد الانتظار" : req.status === "approved" ? "مقبول" : "مرفوض"}
+                                    </span>
+                                  </div>
+                                  <div className="text-[9px] text-slate-500">
+                                    <p>المندوب مقدم الطلب: <strong className="text-slate-700">{req.repName}</strong></p>
+                                    {req.notes && <p className="bg-slate-50 p-1.5 rounded border border-slate-100 mt-1 italic">الملاحظات: {req.notes}</p>}
+                                  </div>
+                                </div>
+
+                                {req.status === "pending" && (
+                                  <div className="flex items-center gap-2 mt-1 justify-end">
+                                    <button
+                                      onClick={() => {
+                                        fetch(`/api/exhibition-requests/${req.id}`, {
+                                          method: "PATCH",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ status: "approved" })
+                                        })
+                                        .then(() => {
+                                          fetchExhibitionRequests();
+                                          fetchExhibitions();
+                                        });
+                                      }}
+                                      className="bg-emerald-500 hover:bg-emerald-600 text-white text-[9px] font-bold px-2 py-1 rounded cursor-pointer animate-none"
+                                    >
+                                      موافقة وتعيين المندوب ✅
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        fetch(`/api/exhibition-requests/${req.id}`, {
+                                          method: "PATCH",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ status: "rejected" })
+                                        })
+                                        .then(() => fetchExhibitionRequests());
+                                      }}
+                                      className="bg-red-500 hover:bg-red-600 text-white text-[9px] font-bold px-2 py-1 rounded cursor-pointer animate-none"
+                                    >
+                                      رفض الطلب ❌
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -4369,7 +4877,8 @@ export default function App() {
                                 <th className="py-3 px-4 text-center text-pink-600">أرسل عرض سعر 💵</th>
                                 <th className="py-3 px-4 text-center text-emerald-600">كم عمد وصار عقد؟ 📋</th>
                                 <th className="py-3 px-4 text-center">غير مهتم</th>
-                                <th className="py-3 px-4 text-center text-indigo-700">نسبة الإنجاز %</th>
+                                <th className="py-3 px-4 text-center text-indigo-700 font-bold">نسبة الإنجاز %</th>
+                                <th className="py-3 px-4 text-center text-slate-750 font-bold">التقرير الشهري</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-150 font-bold">
@@ -4394,6 +4903,15 @@ export default function App() {
                                         <div className="bg-indigo-650 h-full" style={{ width: `${row.conversionRate}%` }}></div>
                                       </div>
                                     </div>
+                                  </td>
+                                  <td className="py-3 px-4 text-center">
+                                    <button
+                                      onClick={() => setSelectedRepForReport(row)}
+                                      className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 justify-center mx-auto cursor-pointer transition-all hover:scale-105"
+                                    >
+                                      <FileText className="w-3.5 h-3.5" />
+                                      <span>توليد PDF 📄</span>
+                                    </button>
                                   </td>
                                 </tr>
                               ))}
@@ -4538,6 +5056,266 @@ export default function App() {
                         )}
                       </div>
                     </div>
+
+                    {/* 📋 قائمة المهام اليومية للمندوب (Daily Tasks) */}
+                    {(() => {
+                      const dailyTasks = (() => {
+                        const activeComps = companies.filter(c => {
+                          const status = getSafeString(c["الحالة"]);
+                          return status !== "تم التعميد" && status !== "تم التنفيذ" && status !== "غير مهتم";
+                        });
+
+                        const tasksList = activeComps.map(c => {
+                          const lastContactStr = getSafeString(c["آخر تواصل"]).trim();
+                          const priority = getSafeString(c["الأولوية"]).trim();
+                          
+                          let daysElapsed = Infinity;
+                          if (lastContactStr) {
+                            const lastDate = new Date(lastContactStr);
+                            if (!isNaN(lastDate.getTime())) {
+                              const today = new Date();
+                              today.setHours(0,0,0,0);
+                              lastDate.setHours(0,0,0,0);
+                              const diffTime = today.getTime() - lastDate.getTime();
+                              daysElapsed = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                            }
+                          }
+
+                          let threshold = 4;
+                          if (priority === "عالية") threshold = 2;
+                          if (priority === "منخفضة") threshold = 7;
+
+                          const isOverdue = daysElapsed >= threshold;
+
+                          let taskText = "";
+                          let taskType = "";
+                          if (daysElapsed === Infinity) {
+                            taskText = "اتصال أولي ترحيبي لتقديم بروفايل الشركة ومعرفة رغبتهم بالاشتراك 📞";
+                            taskType = "متابعة أولية عاجلة";
+                          } else if (priority === "عالية") {
+                            taskText = `متابعة حثيثة للعميل ذو الأهمية العالية (مضى ${daysElapsed} أيام على آخر تواصل) لدفع الصفقة للتعميد ⚠️`;
+                            taskType = "متابعة حرجة جداً";
+                          } else if (priority === "منخفضة") {
+                            taskText = `اتصال دوري لتنشيط الاهتمام وتقديم حلول مخصصة (مضى ${daysElapsed} أيام على آخر تواصل) 🤝`;
+                            taskType = "متابعة تنشيطية";
+                          } else {
+                            taskText = `متابعة دورية لتحديث الاهتمام والوقوف على حالة عرض السعر المالي (مضى ${daysElapsed} أيام) 🔄`;
+                            taskType = "متابعة دورية معتادة";
+                          }
+
+                          return {
+                            company: c,
+                            daysElapsed,
+                            threshold,
+                            isOverdue,
+                            taskText,
+                            taskType
+                          };
+                        });
+
+                        const sorted = tasksList.filter(t => t.isOverdue);
+                        sorted.sort((a, b) => {
+                          if (a.daysElapsed === Infinity) return -1;
+                          if (b.daysElapsed === Infinity) return 1;
+                          return b.daysElapsed - a.daysElapsed;
+                        });
+                        return sorted;
+                      })();
+
+                      return (
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4 text-right mt-5">
+                          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b border-slate-200 pb-3">
+                            <div>
+                              <h5 className="font-extrabold text-slate-900 text-sm flex items-center justify-end gap-1.5">
+                                <span>📋 قائمة المهام اليومية للمندوب (Daily Tasks)</span>
+                              </h5>
+                              <p className="text-[10px] text-slate-500 mt-0.5 text-right">
+                                مجدولة ذكياً بناءً على تاريخ 'آخر تواصل' لكل عميل لتنظيم ومتابعة مكالماتك وأعمالك اليومية
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-end gap-1.5 self-end sm:self-auto">
+                              <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2.5 py-1 rounded-full border border-blue-200 select-none">
+                                مستحقة اليوم: {dailyTasks.length} مهام
+                              </span>
+                            </div>
+                          </div>
+
+                          {dailyTasks.length === 0 ? (
+                            <div className="bg-white border border-slate-150 rounded-xl p-8 text-center space-y-2.5">
+                              <span className="text-3xl block">🎉</span>
+                              <h6 className="font-bold text-emerald-800 text-xs">عمل ممتاز! أنجزت كافة تواصلات اليوم</h6>
+                              <p className="text-[10px] text-slate-500 max-w-sm mx-auto leading-relaxed">
+                                لا توجد أي مهام متابعة متأخرة أو عملاء يحتاجون اتصالاً فورياً اليوم طبقاً للجدول الزمني. واصل هذا الأداء الرائع!
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+                              {dailyTasks.map(({ company: c, daysElapsed, taskText }) => {
+                                const priority = getSafeString(c["الأولوية"]);
+                                const priorityColor = 
+                                  priority === "عالية" ? "bg-red-50 text-red-700 border-red-200" :
+                                  priority === "متوسطة" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                                  "bg-slate-100 text-slate-700 border-slate-200";
+
+                                const statusColor = "bg-blue-50 text-blue-700 border-blue-150";
+
+                                return (
+                                  <div 
+                                    key={c.id} 
+                                    className="bg-white border border-slate-150 hover:border-blue-400 transition-all rounded-xl p-3.5 flex flex-col sm:flex-row justify-between sm:items-center gap-3 shadow-xs text-right"
+                                  >
+                                    <div className="space-y-1.5 text-right flex-1">
+                                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md border ${priorityColor}`}>
+                                          أولوية {priority}
+                                        </span>
+                                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md border ${statusColor}`}>
+                                          حالة: {getSafeString(c["الحالة"])}
+                                        </span>
+                                        <h6 className="font-extrabold text-slate-800 text-xs flex-1 text-right">
+                                          {getSafeString(c["اسم الشركة"])}
+                                        </h6>
+                                      </div>
+                                      <div className="text-[11px] text-slate-600 leading-normal font-medium bg-slate-50 p-2 rounded-lg border border-slate-100 text-right">
+                                        <span className="font-black text-[9px] text-indigo-700 block mb-0.5 text-right">💡 الإجراء المطلوب:</span>
+                                        {taskText}
+                                      </div>
+                                      <div className="flex items-center justify-end gap-3 text-[10px] text-slate-400 font-mono">
+                                        <span>الجوال: {getSafeString(c["الجوال الرئيسي"])}</span>
+                                        <span>•</span>
+                                        <span>آخر تواصل: {getSafeString(c["آخر تواصل"]) || "لم يتصل بعد"}</span>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex sm:flex-col justify-end gap-2 self-stretch sm:self-center">
+                                      <button
+                                        onClick={() => {
+                                          setTaskCompanyToLog(c);
+                                          setTaskLogStatus(getSafeString(c["الحالة"]));
+                                          setTaskLogNotes("");
+                                        }}
+                                        className="flex-1 sm:flex-initial text-center justify-center items-center bg-blue-600 hover:bg-blue-700 active:scale-98 transition-all text-white text-[10.5px] font-extrabold py-2 px-3 rounded-lg shadow-sm flex gap-1 cursor-pointer"
+                                      >
+                                        <span>✅ تسجيل إنجاز المهمة</span>
+                                      </button>
+                                      <a
+                                        href={`https://wa.me/${cleanPhoneForWhatsApp(getSafeString(c["الجوال الرئيسي"]))}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        referrerPolicy="no-referrer"
+                                        className="text-center justify-center items-center bg-emerald-600 hover:bg-emerald-700 transition-all text-white text-[10.5px] font-extrabold py-2 px-2.5 rounded-lg shadow-sm flex gap-1 cursor-pointer"
+                                      >
+                                        <span>واتساب 💬</span>
+                                      </a>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* نافذة تسجيل إنجاز المهمة والاتصال */}
+                    {taskCompanyToLog && (
+                      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+                        <motion.div 
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="bg-white border border-slate-200 rounded-2xl max-w-md w-full shadow-2xl p-5 text-right space-y-4 z-50"
+                        >
+                          <div className="flex justify-between items-center border-b border-slate-100 pb-2.5">
+                            <button 
+                              onClick={() => setTaskCompanyToLog(null)}
+                              className="text-slate-400 hover:text-slate-600 font-bold text-sm"
+                            >
+                              ✕
+                            </button>
+                            <h4 className="font-extrabold text-sm text-slate-900">✅ إكمال وتسجيل تواصل المهمة اليومية</h4>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-slate-400 block">اسم الشركة والعميل:</span>
+                            <span className="font-extrabold text-xs text-indigo-950 block">
+                              {getSafeString(taskCompanyToLog["اسم الشركة"])}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3.5">
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-500 font-bold block mb-1">تعديل حالة العميل الجديدة:</label>
+                              <select
+                                value={taskLogStatus}
+                                onChange={(e) => setTaskLogStatus(e.target.value)}
+                                className="w-full border border-slate-300 rounded-lg p-2 text-xs font-bold bg-white text-right"
+                              >
+                                {ALLOWED_STATUSES.map(st => (
+                                  <option key={st} value={st}>{st}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] text-slate-500 font-bold block mb-1">تاريخ التواصل المنفذ:</label>
+                              <input
+                                type="date"
+                                readOnly
+                                value={new Date().toISOString().split("T")[0]}
+                                className="w-full border border-slate-300 rounded-lg p-2 text-xs font-bold text-center bg-slate-50 text-slate-600"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-slate-500 font-bold block mb-1">ملاحظات ونتائج التواصل (ستضاف للمتابعات):</label>
+                            <textarea
+                              rows={3}
+                              placeholder="أكتب خلاصة ما تم الاتفاق عليه مع العميل خلال المكالمة..."
+                              value={taskLogNotes}
+                              onChange={(e) => setTaskLogNotes(e.target.value)}
+                              className="w-full border border-slate-300 rounded-lg p-2 text-xs text-right leading-relaxed"
+                            />
+                          </div>
+
+                          <div className="flex gap-2 pt-2">
+                            <button
+                              onClick={() => setTaskCompanyToLog(null)}
+                              className="flex-1 bg-slate-100 hover:bg-slate-200 transition-all text-slate-700 font-bold text-xs py-2 px-4 rounded-lg cursor-pointer"
+                            >
+                              إلغاء
+                            </button>
+                            <button
+                              disabled={isLoggingTask}
+                              onClick={async () => {
+                                if (!taskLogNotes.trim()) {
+                                  alert("يرجى كتابة ملاحظات التواصل أولاً لإضافتها لسجل المتابعة.");
+                                  return;
+                                }
+                                setIsLoggingTask(true);
+                                try {
+                                  await handleUpdateCompany(taskCompanyToLog.id, {
+                                    "الحالة": taskLogStatus,
+                                    "آخر_تواصل": new Date().toISOString().split("T")[0],
+                                    "آخر تواصل": new Date().toISOString().split("T")[0],
+                                    "ملاحظات": taskLogNotes,
+                                    "مسؤول المبيعات": selectedRep || taskCompanyToLog["مسؤول المبيعات"]
+                                  });
+                                  setTaskCompanyToLog(null);
+                                  setTaskLogNotes("");
+                                } catch (err) {
+                                  console.error(err);
+                                } finally {
+                                  setIsLoggingTask(false);
+                                }
+                              }}
+                              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-all text-white font-black text-xs py-2 px-4 rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                              {isLoggingTask ? "جاري الحفظ..." : "حفظ المتابعة وإنجاز المهمة ✅"}
+                            </button>
+                          </div>
+                        </motion.div>
+                      </div>
+                    )}
                   </div>
                 )}
               </motion.div>
@@ -4634,18 +5412,20 @@ export default function App() {
                     className="px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                     title="اضغط لتشغيل البحث السريع والذكي مباشرة على كامل الـ 30 ألف عميل في السيرفر"
                   >
-                    <span>{loading || loadingManagerData ? "جاري الاستعلام..." : "استعلام حي قاعدة البيانات (30k+) ⚡"}</span>
+                    <span>{loading || loadingManagerData ? "جاري الاستعلام..." : "استعلام عن العملاء ⚡"}</span>
                   </button>
                 </div>
 
                 {/* زر تصدير البيانات إلى Excel */}
-                <button
-                  onClick={handleExportToExcel}
-                  className="px-4 py-3 bg-emerald-600 hover:bg-emerald-750 text-white rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer max-w-xs"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>تصدير البيانات المصنفة كملف إكسل</span>
-                </button>
+                {isManagerMode && (
+                  <button
+                    onClick={handleExportToExcel}
+                    className="px-4 py-3 bg-emerald-600 hover:bg-emerald-750 text-white rounded-xl text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer max-w-xs"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>تصدير البيانات المصنفة كملف إكسل</span>
+                  </button>
+                )}
  
                 {/* زر مسح فلاتر سريعة */}
                 {(searchQuery || statusFilter || priorityFilter) && (
@@ -4752,7 +5532,7 @@ export default function App() {
                         <th className="py-4 px-6">اسم الشركة المشاركة</th>
                         <th className="py-4 px-6">الجوال الرئيسي</th>
                         <th className="py-4 px-6">البريد الإلكتروني</th>
-                        {isManagerMode && <th className="py-4 px-6 text-center">المندوب المتابع</th>}
+                        {(isManagerMode || !!searchQuery) && <th className="py-4 px-6 text-center">المندوب المتابع</th>}
                         <th className="py-4 px-6 text-center">الحالة الحالية</th>
                         <th className="py-4 px-6 text-center">الأولوية</th>
                         <th className="py-2.5 px-6">آخر تواصل بالعميل</th>
@@ -4807,7 +5587,7 @@ export default function App() {
                           <td className="py-4 px-6 text-slate-600 font-mono text-xs max-w-xs truncate">
                             {company["البريد الإلكتروني"] || "—"}
                           </td>
-                          {isManagerMode && (
+                          {(isManagerMode || !!searchQuery) && (
                             <td className="py-4 px-6 text-center">
                               <span className="font-extrabold text-blue-850 px-2 py-0.5 rounded bg-blue-50 text-xs border border-blue-150">
                                 {company["مسؤول المبيعات"] || "غير معين"}
@@ -4837,7 +5617,7 @@ export default function App() {
                                 <ChevronLeft className="w-3.5 h-3.5" />
                               </button>
                               
-                              {isManagerMode && (
+                              {userRole === "manager" && (
                                 <button
                                   onClick={() => handleDeleteCompany(company.id, company["اسم الشركة"])}
                                   className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-100 rounded-lg transition-all cursor-pointer"
@@ -4908,7 +5688,7 @@ export default function App() {
                             <span className="font-mono text-slate-800 truncate">{company["البريد الإلكتروني"]}</span>
                           </div>
                         )}
-                        {isManagerMode && (
+                        {(isManagerMode || !!searchQuery) && (
                           <div className="flex items-center gap-1.5">
                             <span className="text-slate-400">المندوب:</span>
                             <span className="font-bold text-indigo-700">{company["مسؤول المبيعات"] || "غير مسند"}</span>
@@ -4936,7 +5716,7 @@ export default function App() {
                           <span>عرض التفاصيل والتاريخ والتحديث</span>
                           <ChevronLeft className="w-4 h-4" />
                         </div>
-                        {isManagerMode && (
+                        {userRole === "manager" && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -5478,6 +6258,418 @@ export default function App() {
               يرجى عدم مغادرة أو إغلاق الصفحة حتى اكتمال العمليات بنجاح 🟢
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* نافذة التنبيه بوجود عميل مكرر مع إمكانية تقديم طلب نقل إسناد */}
+      <AnimatePresence>
+        {duplicateCompanyInfo && (
+          <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl text-right space-y-4 font-sans animate-none"
+              id="duplicate-company-warning-modal"
+            >
+              <div className="flex items-center gap-3 border-b border-slate-100 pb-3 justify-start">
+                <div className="h-10 w-10 bg-amber-50 rounded-full flex items-center justify-center text-amber-600 text-lg">⚠️</div>
+                <div className="space-y-0.5 text-right">
+                  <h4 className="text-sm font-black text-slate-800">تنبيه: هذا العميل مكرر ومسجل مسبقاً!</h4>
+                  <p className="text-[10px] text-slate-500">تم الكشف عن وجود بيانات متطابقة للعميل في النظام.</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-150 space-y-2 text-xs">
+                <div className="grid grid-cols-2 gap-2 text-right">
+                  <p><span className="text-slate-400 font-bold">اسم الشركة/العميل:</span> <strong className="text-slate-800">{duplicateCompanyInfo["اسم الشركة"]}</strong></p>
+                  <p><span className="text-slate-400 font-bold">كود العميل:</span> <strong className="text-slate-800">{duplicateCompanyInfo["كود الشركة"]}</strong></p>
+                  <p><span className="text-slate-400 font-bold">الجوال المسجل:</span> <strong className="text-slate-800">{duplicateCompanyInfo["الجوال الرئيسي"]}</strong></p>
+                  <p><span className="text-slate-400 font-bold">حالة المتابعة:</span> <strong className="text-slate-800 bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px]">{duplicateCompanyInfo["الحالة"]}</strong></p>
+                </div>
+                <div className="pt-2 border-t border-slate-200 mt-2 flex items-center justify-between">
+                  <span className="text-slate-400 font-bold">المندوب الحالي المتابع لحالته:</span>
+                  <span className="bg-blue-50 text-blue-700 font-black px-2 py-0.5 rounded text-[11px]">
+                    👤 {duplicateCompanyInfo["مسؤول المبيعات"] || "غير مسند / مفتوح للجميع"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2 text-right">
+                <label className="text-[11px] font-black text-slate-600 block">هل ترغب في طلب نقل إسناد هذا العميل إليك؟</label>
+                <p className="text-[10px] text-slate-400">سيتم رفع الطلب مع تبريرك للإدارة للمراجعة والموافقة الفورية.</p>
+                <textarea
+                  value={transferRequestReason}
+                  onChange={(e) => setTransferRequestReason(e.target.value)}
+                  placeholder="اكتب تبرير طلب نقل الإسناد هنا (مثال: تواصل معي العميل مجدداً أو المندوب السابق مستقيل)..."
+                  className="w-full text-xs rounded-xl border border-slate-200 p-3 bg-slate-50 focus:bg-white text-slate-800 focus:ring-2 focus:ring-blue-400 min-h-[80px]"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 justify-end pt-2">
+                <button
+                  onClick={() => {
+                    setDuplicateCompanyInfo(null);
+                    setTransferRequestReason("");
+                  }}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold px-4 py-2 rounded-xl transition-all cursor-pointer"
+                >
+                  إلغاء وإغلاق
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!duplicateCompanyInfo) return;
+                    setIsSubmittingTransfer(true);
+                    try {
+                      const response = await fetch("/api/transfer-requests", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          companyId: duplicateCompanyInfo.id,
+                          companyName: duplicateCompanyInfo["اسم الشركة"],
+                          fromRep: duplicateCompanyInfo["مسؤول المبيعات"] || "غير مسند",
+                          toRep: isManagerMode ? "نبيل الزبير" : (selectedRep || "غير معروف"),
+                          reason: transferRequestReason
+                        })
+                      });
+                      const data = await response.json();
+                      if (response.ok) {
+                        alert("تم تقديم طلب نقل إسناد العميل للإدارة بنجاح وجاري دراسته! 📤");
+                        setDuplicateCompanyInfo(null);
+                        setTransferRequestReason("");
+                      } else {
+                        alert(data.error || "فشل إرسال طلب نقل الإسناد.");
+                      }
+                    } catch (err) {
+                      console.error("Error submitting transfer request:", err);
+                      alert("حدث خطأ أثناء تقديم طلب نقل الإسناد.");
+                    } finally {
+                      setIsSubmittingTransfer(false);
+                    }
+                  }}
+                  disabled={isSubmittingTransfer}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-55"
+                >
+                  {isSubmittingTransfer ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>جاري الإرسال...</span>
+                    </>
+                  ) : (
+                    <span>تقديم طلب نقل الإسناد 📤</span>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+ 
+      {/* نافذة توليد تقرير أداء المندوب الشهري بصيغة PDF الطباعية */}
+      <AnimatePresence>
+        {selectedRepForReport && (
+          <div className="fixed inset-0 bg-slate-900/65 backdrop-blur-md z-[9999] flex items-center justify-center p-4 overflow-y-auto no-print">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 30 }}
+              className="bg-white border border-slate-200 rounded-3xl max-w-4xl w-full p-8 shadow-2xl text-right space-y-6 font-sans my-8"
+              id="report-preview-modal"
+            >
+              {/* شريط الإجراءات والتحميل في المعاينة */}
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4 no-print flex-row-reverse">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-10 w-10 bg-red-50 text-red-600 rounded-xl flex items-center justify-center">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-0.5 text-right">
+                    <h4 className="text-sm font-black text-slate-800">معاينة تقرير الأداء الشهري الرسمي</h4>
+                    <p className="text-[10px] text-slate-500">جاهز للطباعة أو الحفظ كملف PDF رقمي عالي الجودة</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedRepForReport(null)}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold px-4 py-2.5 rounded-xl transition-all cursor-pointer"
+                  >
+                    إغلاق المعاينة ✕
+                  </button>
+                  <button
+                    onClick={() => window.print()}
+                    className="bg-red-600 hover:bg-red-700 text-white text-xs font-black px-5 py-2.5 rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-lg shadow-red-600/10 hover:scale-102"
+                  >
+                    <Printer className="w-4 h-4" />
+                    <span>طباعة التقرير / حفظ PDF 📥</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* ورقة التقرير الطباعية الرسمية */}
+              <div 
+                id="printable-report-wrapper"
+                className="bg-white p-8 border-4 border-slate-800 rounded-2xl space-y-6 relative overflow-hidden text-right leading-relaxed text-slate-800"
+              >
+                {/* Style injection for printing */}
+                <style dangerouslySetInnerHTML={{ __html: `
+                  @media print {
+                    body {
+                      visibility: hidden !important;
+                      background-color: white !important;
+                      color: black !important;
+                    }
+                    #printable-report-wrapper, #printable-report-wrapper * {
+                      visibility: visible !important;
+                    }
+                    #printable-report-wrapper {
+                      position: absolute !important;
+                      left: 0 !important;
+                      top: 0 !important;
+                      width: 100% !important;
+                      height: auto !important;
+                      border: none !important;
+                      padding: 10px !important;
+                      margin: 0 !important;
+                      box-shadow: none !important;
+                      direction: rtl !important;
+                    }
+                    .no-print {
+                      display: none !important;
+                    }
+                  }
+                `}} />
+
+                {/* ترويسة التقرير الرسمية */}
+                <div className="flex items-center justify-between border-b-4 border-slate-800 pb-5">
+                  {/* يسار الترويسة: التاريخ والفترة */}
+                  <div className="space-y-1 text-left font-mono text-[11px] text-slate-600">
+                    <p><span className="font-bold text-slate-800">الرقم المرجعي:</span> REP-PERF-2026-{(selectedRepForReport.delegate || "").charCodeAt(0) || "09"}</p>
+                    <p><span className="font-bold text-slate-800">تاريخ التقرير:</span> {new Date().toLocaleDateString("ar-SA", { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                    <p><span className="font-bold text-slate-800">الفترة المستهدفة:</span> شهري (يونيو 2026)</p>
+                    <p><span className="font-bold text-slate-800">حالة الاعتماد:</span> معتمد من المدير العام 🎖️</p>
+                  </div>
+
+                  {/* يمين الترويسة: اسم وشعار الشركة */}
+                  <div className="text-right space-y-1.5">
+                    <div className="flex items-center gap-2 justify-end">
+                      <span className="text-xl font-black bg-slate-900 text-white px-2.5 py-1 rounded-lg">EXPO TIME</span>
+                      <span className="text-2xl">⏳</span>
+                    </div>
+                    <p className="text-xs font-black text-slate-900">إكسبو تايم لتنظيم المعارض والمؤتمرات الدولية</p>
+                    <p className="text-[10px] text-slate-500">متابعة ورقابة مبيعات كبار العملاء والمشاركات الحكومية</p>
+                  </div>
+                </div>
+
+                {/* عنوان التقرير */}
+                <div className="text-center bg-slate-900 text-white py-3 rounded-xl">
+                  <h2 className="text-base font-black tracking-wide">تقرير الأداء السلوكي والمبيعات الشهري للمندوب</h2>
+                </div>
+
+                {/* بطاقة تعريف المندوب */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 border border-slate-200 p-4 rounded-xl text-xs">
+                  <div className="space-y-2">
+                    <p><span className="text-slate-500 font-bold">اسم المندوب المسؤول:</span> <strong className="text-slate-900 text-sm">{selectedRepForReport.delegate}</strong></p>
+                    <p><span className="text-slate-500 font-bold">القسم الوظيفي:</span> <strong className="text-slate-800">{employees.find(e => getSafeString(e["الاسم"]).trim() === getSafeString(selectedRepForReport.delegate).trim())?.["القسم"] || "مبيعات كبار العملاء والمعارض"}</strong></p>
+                  </div>
+                  <div className="space-y-2 text-left md:text-right">
+                    <p><span className="text-slate-500 font-bold">البريد الإلكتروني المعتمد:</span> <strong className="text-slate-800 font-mono">{employees.find(e => getSafeString(e["الاسم"]).trim() === getSafeString(selectedRepForReport.delegate).trim())?.["البريد الإلكتروني"] || "nabilalzubair@gmail.com"}</strong></p>
+                    <p><span className="text-slate-500 font-bold">رقم الجوال الفردي:</span> <strong className="text-slate-800 font-mono">{employees.find(e => getSafeString(e["الاسم"]).trim() === getSafeString(selectedRepForReport.delegate).trim())?.["الجوال"] || "050XXXXXXX"}</strong></p>
+                  </div>
+                </div>
+
+                {/* لوحة مؤشرات الأداء الرئيسية (KPIs) */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-black text-slate-900 border-r-4 border-slate-800 pr-2">أولاً: مؤشرات المبيعات وتحصيل العقود الرئيسية</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="border border-slate-200 p-3.5 rounded-xl text-center space-y-1 bg-white print-card">
+                      <span className="text-[10px] text-slate-500 font-bold block">إجمالي الشركات المسندة</span>
+                      <strong className="text-lg font-black text-slate-800 font-mono block">{selectedRepForReport.totalCompanies}</strong>
+                      <span className="text-[9px] text-slate-400 block">شركات محددة</span>
+                    </div>
+
+                    <div className="border border-slate-200 p-3.5 rounded-xl text-center space-y-1 bg-white print-card">
+                      <span className="text-[10px] text-blue-600 font-bold block">معدل التواصل الفعال</span>
+                      <strong className="text-lg font-black text-blue-700 font-mono block">{selectedRepForReport.totalContacted}</strong>
+                      <span className="text-[9px] text-blue-500 block">طرق وتحديث حالات</span>
+                    </div>
+
+                    <div className="border border-slate-200 p-3.5 rounded-xl text-center space-y-1 bg-white print-card">
+                      <span className="text-[10px] text-emerald-600 font-bold block">العقود المبرمة والتعميدات</span>
+                      <strong className="text-lg font-black text-emerald-700 font-mono block">{selectedRepForReport.signedAgreements}</strong>
+                      <span className="text-[9px] text-emerald-500 block">عميل معمد ناجح</span>
+                    </div>
+
+                    <div className="border border-slate-200 p-3.5 rounded-xl text-center space-y-1 bg-indigo-50/50 border-indigo-100">
+                      <span className="text-[10px] text-indigo-700 font-bold block">نسبة الإنجاز % (معدل التعميد)</span>
+                      <strong className="text-lg font-black text-indigo-800 font-mono block">{selectedRepForReport.conversionRate}%</strong>
+                      <span className="text-[9px] text-indigo-500 block">من إجمالي المستندات</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* التقييم السلوكي ومستوى الجهد */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="border border-slate-200 p-4 rounded-xl space-y-3 bg-white print-card">
+                    <h5 className="text-[11px] font-black text-slate-900">ثانياً: التقييم السلوكي ومستوى المجهود التلقائي</h5>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500">درجة الجهد المئوية:</span>
+                        <span className="font-black text-slate-800 font-mono">{selectedRepForReport.effortScore || (selectedRepForReport.totalContacted * 10 + selectedRepForReport.signedAgreements * 50)} / 100</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                        <div className="bg-slate-800 h-full rounded-full" style={{ width: `${Math.min(100, selectedRepForReport.effortScore || (selectedRepForReport.totalContacted * 10 + selectedRepForReport.signedAgreements * 50))}%` }}></div>
+                      </div>
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                        <span className="text-slate-500 font-bold">التقييم الشهري العام:</span>
+                        <span className="bg-slate-100 text-slate-800 font-black px-2.5 py-1 rounded text-[11px]">
+                          {selectedRepForReport.monthlyRating}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500">الجهد الأسبوعي الفوري:</span>
+                        <span className="font-bold text-slate-700 text-[10px]">
+                          {selectedRepForReport.weeklyRating}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 p-4 rounded-xl space-y-3 bg-white print-card flex flex-col justify-between">
+                    <div>
+                      <h5 className="text-[11px] font-black text-slate-900">إحصائيات إضافية للملف</h5>
+                      <p className="text-[10px] text-slate-500 mt-1">توضح حجم التحركات والمواد التسويقية المرسلة للعملاء من قبل المندوب:</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        <span className="text-[9px] text-slate-500 block">بروفايلات مرسلة</span>
+                        <strong className="font-black text-slate-800 font-mono">{selectedRepForReport.profilesSent}</strong>
+                      </div>
+                      <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        <span className="text-[9px] text-slate-500 block">طلبات تصميم</span>
+                        <strong className="font-black text-slate-800 font-mono">{selectedRepForReport.designsRequested}</strong>
+                      </div>
+                      <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                        <span className="text-[9px] text-slate-500 block">عروض أسعار</span>
+                        <strong className="font-black text-slate-800 font-mono">{selectedRepForReport.quotesSent}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ثالثاً: جدول ببيانات الشركات المنسوبة وتحديثاتها */}
+                <div className="space-y-2.5">
+                  <h4 className="text-xs font-black text-slate-900 border-r-4 border-slate-800 pr-2">ثالثاً: ملخص كشف عملاء المندوب والحالات الراهنة</h4>
+                  <div className="border border-slate-200 rounded-xl overflow-hidden bg-white print-card text-[10px]">
+                    <table className="w-full text-right border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-700 border-b border-slate-200 font-black">
+                          <th className="p-2">كود الشركة</th>
+                          <th className="p-2">اسم الشركة العميل</th>
+                          <th className="p-2">المعرض</th>
+                          <th className="p-2">المدينة</th>
+                          <th className="p-2">الأولوية</th>
+                          <th className="p-2 text-center">حالة العميل</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const repName = selectedRepForReport.delegate || "";
+                          const targetCompanies = isManagerMode ? managerCompanies : companies;
+                          const repCompanies = targetCompanies.filter(c => {
+                            const repField = getSafeString(c["مسؤول المبيعات"]).trim() || getSafeString(c["المندوب"]).trim() || getSafeString(c["الموظف المرتبط"]).trim();
+                            return repField.toLowerCase() === repName.toLowerCase().trim();
+                          });
+
+                          if (repCompanies.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={6} className="p-4 text-center text-slate-400 font-bold">
+                                  لا توجد شركات أو عملاء مسندين حالياً لهذا المندوب لعرضهم في الكشف المطبوع.
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return repCompanies.slice(0, 10).map((comp) => {
+                            const status = getSafeString(comp["الحالة"]);
+                            const isApproved = ["تم التعميد", "معمد", "تم التنفيذ"].includes(status);
+                            const isRejected = status === "مرفوض";
+
+                            return (
+                              <tr key={comp.id} className="border-b border-slate-100">
+                                <td className="p-2 font-mono font-bold text-slate-700">{getSafeString(comp["كود الشركة"]) || "C-N/A"}</td>
+                                <td className="p-2 font-black text-slate-900">{getSafeString(comp["اسم الشركة"])}</td>
+                                <td className="p-2 text-slate-600">{getSafeString(comp["المعرض"]) || "غير محدد"}</td>
+                                <td className="p-2 text-slate-500">{getSafeString(comp["المدينة"])}</td>
+                                <td className="p-2">{getSafeString(comp["الأولوية"]) || "متوسطة"}</td>
+                                <td className="p-2 text-center font-bold">
+                                  {isApproved ? "معمد 🟢" : isRejected ? "مرفوض 🔴" : `${status} 🟡`}
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                        {(() => {
+                          const repName = selectedRepForReport.delegate || "";
+                          const targetCompanies = isManagerMode ? managerCompanies : companies;
+                          const repCompaniesCount = targetCompanies.filter(c => {
+                            const repField = getSafeString(c["مسؤول المبيعات"]).trim() || getSafeString(c["المندوب"]).trim() || getSafeString(c["الموظف المرتبط"]).trim();
+                            return repField.toLowerCase() === repName.toLowerCase().trim();
+                          }).length;
+
+                          if (repCompaniesCount > 10) {
+                            return (
+                              <tr className="bg-slate-50">
+                                <td colSpan={6} className="p-2 text-center font-bold text-slate-500 font-sans text-[9px]">
+                                  تم إخفاء {repCompaniesCount - 10} شركات إضافية من الكشف لتبسيط التقرير المطبوع في صفحة واحدة.
+                                </td>
+                              </tr>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* التوصية والختم والتوقيع */}
+                <div className="grid grid-cols-2 gap-6 pt-6 border-t-2 border-dashed border-slate-300 print-break-inside-avoid text-right">
+                  {/* توصية وتوجيه الإدارة العامة */}
+                  <div className="space-y-2 border border-slate-200 p-3 rounded-xl bg-slate-50/50 text-[10px]">
+                    <span className="font-black text-slate-900 block border-b pb-1">✍️ توصية وتوجيه الإدارة العامة والمدير العام:</span>
+                    <p className="text-slate-600 text-justify leading-relaxed">
+                      يُثمن المدير العام الأستاذ نبيل الزبير الجهود المبذولة والمتابعات المسجلة من قبل المندوب خلال هذا الشهر لتعظيم فرص التعميد وخدمة العملاء. يُوصى بالاستمرار في طرق الحالات المعلقة لرفع معدلات التحويل ومضاعفة التواصل مع العملاء ذوي الأولوية العالية لتحقيق المستهدف البيعي.
+                    </p>
+                  </div>
+
+                  {/* تواقيع الاعتماد والختم الرسمي */}
+                  <div className="grid grid-cols-2 gap-2 text-center text-[10px]">
+                    <div className="flex flex-col justify-between py-1 border border-slate-150 rounded-xl bg-white print-card">
+                      <span className="font-bold text-slate-500">المندوب المعد للتقرير:</span>
+                      <strong className="text-slate-800 text-[11px] block mt-4">{selectedRepForReport.delegate}</strong>
+                      <span className="text-[9px] text-slate-400 mt-2">التوقيع: .....................</span>
+                    </div>
+
+                    <div className="flex flex-col justify-between py-1 border border-slate-150 rounded-xl bg-white print-card relative">
+                      <span className="font-bold text-slate-700">اعتماد المدير العام:</span>
+                      <strong className="text-blue-900 text-[11px] block font-black mt-4">نبيل الزبير 🖋️</strong>
+                      <span className="text-[9px] text-slate-400 mt-2">التوقيع والختم المعتمد</span>
+                      {/* ختم رمزي للجمالية */}
+                      <div className="absolute bottom-2 left-2 opacity-15 select-none text-red-600 text-sm font-black border-2 border-red-600 rounded-full px-1 py-0.5 rotate-12">
+                        APPROVED
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* فوتر التقرير */}
+                <div className="border-t border-slate-200 pt-4 text-center text-[8px] text-slate-400 font-mono select-none">
+                  أنشئ هذا التقرير آلياً بواسطة بوابة المدير العام في نظام إكسبو تايم لإدارة علاقات العملاء والمبيعات © 2026. جميع الحقوق محفوظة.
+                </div>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 

@@ -69,214 +69,18 @@ let mockEmployeesList = [
   { id: 2, "الاسم": "نصر", "البريد الإلكتروني": "nasr@expotime.com" },
   { id: 3, "الاسم": "محمود", "البريد الإلكتروني": "mahmoud@expotime.com" },
   { id: 4, "الاسم": "جميلة", "البريد الإلكتروني": "jamila@expotime.com" },
-  { id: 5, "الاسم": "نبيل", "البريد الإلكتروني": "nabil@expotime.com" }
+  { id: 5, "الاسم": "نبيل الزبير", "البريد الإلكتروني": "nabilalzubair@gmail.com" }
 ];
 
 // بيانات تجريبية (Mock Data) للشركات في حال عدم توفر الاتصال بـ Baserow
-let mockCompanies: any[] = []; /* [
-  {
-    id: 1,
-    "كود الشركة": "COMP-101",
-    "اسم الشركة": "شركة سدير للمقاولات والإعمار",
-    "النشاط": "مقاولات عامة وتطوير عقاري",
-    "المدينة": "الرياض",
-    "الجوال الرئيسي": "0501234567",
-    "البريد الإلكتروني": "info@sudair.sa",
-    "الحالة": "جديد",
-    "مسؤول المبيعات": "مؤيدة",
-    "الأولوية": "عالية",
-    "آخر تواصل": "",
-    "المصدر": "معرض فعاليات الرياض",
-    "ملاحظات": "الشركة مهتمة بتركيب جناح عرض بمساحة 100م٢ في الربع الثالث وتطلب اتصالاً أولياً"
-  },
-  {
-    id: 2,
-    "كود الشركة": "COMP-102",
-    "اسم الشركة": "شركة آفاق الغد للحلول الذكية",
-    "النشاط": "تقنية معلومات واتصالات",
-    "المدينة": "جدة",
-    "الجوال الرئيسي": "0549876543",
-    "البريد الإلكتروني": "contact@afaqtech.com",
-    "الحالة": "تفاوض",
-    "مسؤول المبيعات": "مؤيدة",
-    "الأولوية": "متوسطة",
-    "آخر تواصل": "2026-06-01",
-    "المصدر": "الموقع الإلكتروني",
-    "ملاحظات": "تم تقديم مراجعة لتصميم المبنى ويجري مناقشة حجز المساحة"
-  },
-  {
-    id: 3,
-    "كود الشركة": "COMP-103",
-    "اسم الشركة": "مجموعة الشايع للتجزئة والأغذية",
-    "النشاط": "تجارة تجزئة وضيافة",
-    "المدينة": "الدمام",
-    "الجوال الرئيسي": "0561112223",
-    "البريد الإلكتروني": "shaya@retail-gulf.com",
-    "الحالة": "تم إرسال البروفايل",
-    "مسؤول المبيعات": "نصر",
-    "الأولوية": "منخفضة",
-    "آخر تواصل": "2026-05-20",
-    "المصدر": "حملة بريد الكتروني",
-    "ملاحظات": "طلبوا نسخة مطبوعة من بروفايل الفعاليات الأخير لإرسالها للإدارة الإقليمية"
-  },
-  {
-    id: 4,
-    "كود الشركة": "COMP-104",
-    "اسم الشركة": "شركة الرؤية الرقمية لتنظيم المعارض",
-    "النشاط": "تنظيم فعاليات وخدمات بروموشن",
-    "المدينة": "الرياض",
-    "الجوال الرئيسي": "0534445556",
-    "البريد الإلكتروني": "info@digitalvision.sa",
-    "الحالة": "جديد",
-    "مسؤول المبيعات": "نصر",
-    "الأولوية": "عالية",
-    "آخر تواصل": "",
-    "المصدر": "توصية عميل سابق",
-    "ملاحظات": "طلب تفاصيل نظام الرعاية والخصومات للشركاء الاستراتيجيين"
-  },
-  {
-    id: 5,
-    "كود الشركة": "COMP-105",
-    "اسم الشركة": "شركة المروة للتطوير السكني",
-    "النشاط": "استثمار عقاري وتطوير",
-    "المدينة": "الخبر",
-    "الجوال الرئيسي": "0556667778",
-    "البريد الإلكتروني": "sales@almarwa.sa",
-    "الحالة": "تم التواصل",
-    "مسؤول المبيعات": "محمود",
-    "الأولوية": "عالية",
-    "آخر تواصل": "2026-06-03",
-    "المصدر": "معرض سيتي سكيب",
-    "ملاحظات": "تم النقاش الأولي، يطلبون تصميماً ثلاثي الأبعاد لجناحهم قبل إرسال كراسة الشروط"
-  },
-  {
-    id: 6,
-    "كود الشركة": "COMP-106",
-    "اسم الشركة": "مؤسسة النخبة للسياحة والضيافة",
-    "النشاط": "خدمات سفر وسياحة",
-    "المدينة": "المدينة المنورة",
-    "الجوال الرئيسي": "0543332221",
-    "البريد الإلكتروني": "info@elitetravel.com.sa",
-    "الحالة": "غير مهتم",
-    "مسؤول المبيعات": "محمود",
-    "الأولوية": "منخفضة",
-    "آخر تواصل": "2026-05-15",
-    "المصدر": "اتصال بارد",
-    "ملاحظات": "أفاد المندوب بأن الميزانية مجمدة حتى بداية العام القادم ومكتفون بالمشاركة الرقمية"
-  },
-  {
-    id: 7,
-    "كود الشركة": "COMP-107",
-    "اسم الشركة": "الشركة الوطنية للصناعات الغذائية",
-    "النشاط": "تصنيع وتوزيع مواد غذائية",
-    "المدينة": "القصيم",
-    "الجوال الرئيسي": "0512223334",
-    "البريد الإلكتروني": "procurement@nationalfood.sa",
-    "الحالة": "تم إرسال العرض",
-    "مسؤول المبيعات": "جميلة",
-    "الأولوية": "عالية",
-    "آخر تواصل": "2026-06-05",
-    "المصدر": "لقاء في ملتقى بيبان",
-    "ملاحظات": "المعرض القادم هو الأسبوع الوطني للغذاء، تم إرسال تسعيرة الجناح القياسي بقيمة 45,000 ريال وبانتظار رد المالية"
-  },
-  {
-    id: 8,
-    "كود الشركة": "COMP-108",
-    "اسم الشركة": "مستشفى الموسى التخصصي",
-    "النشاط": "خدمات صحية وطبية",
-    "المدينة": "الأحساء",
-    "الجوال الرئيسي": "0559998887",
-    "البريد الإلكتروني": "expo@almoosahospital.com.sa",
-    "الحالة": "تم طلب التصميم",
-    "مسؤول المبيعات": "جميلة",
-    "الأولوية": "متوسطة",
-    "آخر تواصل": "2026-06-04",
-    "المصدر": "اتصال مباشر من العميل",
-    "ملاحظات": "يرغبون في تصميم جذاب يبرز شعار المستشفى ومزود بقسم مخصص لإجراء فحوصات فورية للزوار"
-  },
-  {
-    id: 9,
-    "كود الشركة": "COMP-109",
-    "اسم الشركة": "شركة البحر الأحمر الدولية",
-    "النشاط": "تطوير سياحي وعقاري",
-    "المدينة": "تبوك",
-    "الجوال الرئيسي": "0509990001",
-    "البريد الإلكتروني": "proc@redseaintl.com",
-    "الحالة": "تم التواصل",
-    "مسؤول المبيعات": "نبيل",
-    "الأولوية": "عالية",
-    "آخر تواصل": "2026-06-02",
-    "المصدر": "عميل متكرر",
-    "ملاحظات": "مكالمة هاتفية مع مدير الفعاليات لمناقشة تجديد جناح العرض الخاص بهم في موسم الصيف"
-  },
-  {
-    id: 10,
-    "كود الشركة": "COMP-110",
-    "اسم الشركة": "الشركة السعودية للكهرباء",
-    "النشاط": "طاقة وقوى كهربائية",
-    "المدينة": "الرياض",
-    "الجوال الرئيسي": "0590001112",
-    "البريد الإلكتروني": "exhibition@se.com.sa",
-    "الحالة": "جديد",
-    "مسؤول المبيعات": "نبيل",
-    "الأولوية": "متوسطة",
-    "آخر تواصل": "",
-    "المصدر": "طلب عبر البريد الرسمي",
-    "ملاحظات": "تواصلوا للاستعلام عن المساحات المتاحة في معرض الطاقة المتجددة"
-  },
-  {
-    id: 11,
-    "كود الشركة": "COMP-111",
-    "اسم الشركة": "شركة طيران أديل المحدودة",
-    "النشاط": "خدمات طيران ونقل جوي",
-    "المدينة": "جدة",
-    "الجوال الرئيسي": "0548887771",
-    "البريد الإلكتروني": "marketing@flyadeal.com",
-    "الحالة": "تم التعميد",
-    "مسؤول المبيعات": "نصر",
-    "الأولوية": "عالية",
-    "آخر تواصل": "2026-06-06",
-    "المصدر": "مناقصة حكومية",
-    "ملاحظات": "تم تعميد العقد رسمياً ولله الحمد، وباشرت الإدارة الهندسية إعداد المخططات التفصيلية"
-  },
-  {
-    id: 12,
-    "كود الشركة": "COMP-112",
-    "اسم الشركة": "مجموعة السديري القابضة",
-    "النشاط": "استثمارات عامة وتجارة",
-    "المدينة": "عرعر",
-    "الجوال الرئيسي": "0531110009",
-    "البريد الإلكتروني": "info@alsudairy.com",
-    "الحالة": "متردد",
-    "مسؤول المبيعات": "نبيل",
-    "الأولوية": "منخفضة",
-    "آخر تواصل": "2026-05-10",
-    "المصدر": "معرض فعاليات الشمال",
-    "ملاحظات": "مشاركتهم مترددة وتعتمد على رعاية إمارة المنطقة للمعرض"
-  }
-]; */
+const defaultCompanies: any[] = [];
+
+let mockCompanies: any[] = [];
 
 // سجلات المتابعات للتجربة المحلية
-let mockFollowups: any[] = []; /* [
-  {
-    id: 1,
-    "الشركة المرتبطة": 2,
-    "الموظف المرتبط": "مؤيدة",
-    "تاريخ المتابعة": "2026-06-01",
-    "الحالة": "تفاوض",
-    "الملاحظات": "تم تقديم مراجعة لتصميم المبنى ومناقشة عروض ومساحة الجناح الأولي.",
-    "المصدر": "واجهة المندوب"
-  },
-  {
-    id: 2,
-    "الشركة المرتبطة": 11,
-    "الموظف المرتبط": "نصر",
-    "تاريخ المتابعة": "2026-06-06",
-    "الحالة": "تم التعميد",
-    "الملاحظات": "استلام التعميد الرسمي من مكتب المشتريات بمقر طيران أديل بالكامل.",
-    "المصدر": "واجهة المندوب"
-  }
-]; */
+const defaultFollowups: any[] = [];
+
+let mockFollowups: any[] = [];
 
 // ==========================================
 // 1.5. نظام التخزين المحلي المحمي للملفات وتكامل البيانات
@@ -288,6 +92,79 @@ const QUOTATIONS_FILE = path.join(process.cwd(), "quotations-db.json");
 const SETTINGS_FILE = path.join(process.cwd(), "settings-db.json");
 const CHATS_FILE = path.join(process.cwd(), "chats-db.json");
 const WORKSPACE_CHATS_FILE = path.join(process.cwd(), "workspace-chats-db.json");
+const EXHIBITIONS_FILE = path.join(process.cwd(), "exhibitions-db.json");
+const TRANSFER_REQUESTS_FILE = path.join(process.cwd(), "transfer-requests-db.json");
+const EXHIBITION_REQUESTS_FILE = path.join(process.cwd(), "exhibition-requests-db.json");
+
+let mockExhibitions: any[] = [];
+try {
+  if (fs.existsSync(EXHIBITIONS_FILE)) {
+    mockExhibitions = JSON.parse(fs.readFileSync(EXHIBITIONS_FILE, "utf8"));
+  } else {
+    mockExhibitions = [
+      {
+        id: "ex-1",
+        "اسم المعرض": "معرض البناء السعودي 2026",
+        "المدينة": "الرياض",
+        "التاريخ": "2026-10-12",
+        "المندوب المسؤول": "مؤيدة"
+      },
+      {
+        id: "ex-2",
+        "اسم المعرض": "معرض الفندقة والأغذية السعودي",
+        "المدينة": "جدة",
+        "التاريخ": "2026-11-05",
+        "المندوب المسؤول": "نصر"
+      },
+      {
+        id: "ex-3",
+        "اسم المعرض": "معرض الرياض الدولي للكتاب 2026",
+        "المدينة": "الرياض",
+        "التاريخ": "2026-09-25",
+        "المندوب المسؤول": "غير مسند"
+      }
+    ];
+    fs.writeFileSync(EXHIBITIONS_FILE, JSON.stringify(mockExhibitions, null, 2), "utf8");
+  }
+} catch (e: any) {
+  console.error("Error reading exhibitions file:", e.message);
+}
+
+const saveExhibitionsLocal = () => {
+  try { fs.writeFileSync(EXHIBITIONS_FILE, JSON.stringify(mockExhibitions, null, 2), "utf8"); } catch(e){}
+};
+
+let mockTransferRequests: any[] = [];
+try {
+  if (fs.existsSync(TRANSFER_REQUESTS_FILE)) {
+    mockTransferRequests = JSON.parse(fs.readFileSync(TRANSFER_REQUESTS_FILE, "utf8"));
+  } else {
+    mockTransferRequests = [];
+    fs.writeFileSync(TRANSFER_REQUESTS_FILE, JSON.stringify(mockTransferRequests, null, 2), "utf8");
+  }
+} catch (e: any) {
+  console.error("Error reading transfer requests file:", e.message);
+}
+
+const saveTransferRequestsLocal = () => {
+  try { fs.writeFileSync(TRANSFER_REQUESTS_FILE, JSON.stringify(mockTransferRequests, null, 2), "utf8"); } catch(e){}
+};
+
+let mockExhibitionRequests: any[] = [];
+try {
+  if (fs.existsSync(EXHIBITION_REQUESTS_FILE)) {
+    mockExhibitionRequests = JSON.parse(fs.readFileSync(EXHIBITION_REQUESTS_FILE, "utf8"));
+  } else {
+    mockExhibitionRequests = [];
+    fs.writeFileSync(EXHIBITION_REQUESTS_FILE, JSON.stringify(mockExhibitionRequests, null, 2), "utf8");
+  }
+} catch (e: any) {
+  console.error("Error reading exhibition requests file:", e.message);
+}
+
+const saveExhibitionRequestsLocal = () => {
+  try { fs.writeFileSync(EXHIBITION_REQUESTS_FILE, JSON.stringify(mockExhibitionRequests, null, 2), "utf8"); } catch(e){}
+};
 
 let mockWorkspaceChats: any[] = [];
 try {
@@ -351,22 +228,38 @@ try {
 // تحميل السجلات المحفوظة مسبقاً لمنع أي فقدان للبيانات
 try {
   if (fs.existsSync(COMPANIES_FILE)) {
-    mockCompanies = JSON.parse(fs.readFileSync(COMPANIES_FILE, "utf8"));
+    const raw = fs.readFileSync(COMPANIES_FILE, "utf8").trim();
+    if (raw && raw !== "[]") {
+      mockCompanies = JSON.parse(raw);
+    } else {
+      mockCompanies = defaultCompanies;
+      fs.writeFileSync(COMPANIES_FILE, JSON.stringify(mockCompanies, null, 2), "utf8");
+    }
   } else {
+    mockCompanies = defaultCompanies;
     fs.writeFileSync(COMPANIES_FILE, JSON.stringify(mockCompanies, null, 2), "utf8");
   }
 } catch (e: any) {
   console.error("خطأ في قراءة ملف شركات:", e.message);
+  mockCompanies = defaultCompanies;
 }
 
 try {
   if (fs.existsSync(FOLLOWUPS_FILE)) {
-    mockFollowups = JSON.parse(fs.readFileSync(FOLLOWUPS_FILE, "utf8"));
+    const raw = fs.readFileSync(FOLLOWUPS_FILE, "utf8").trim();
+    if (raw && raw !== "[]") {
+      mockFollowups = JSON.parse(raw);
+    } else {
+      mockFollowups = defaultFollowups;
+      fs.writeFileSync(FOLLOWUPS_FILE, JSON.stringify(mockFollowups, null, 2), "utf8");
+    }
   } else {
+    mockFollowups = defaultFollowups;
     fs.writeFileSync(FOLLOWUPS_FILE, JSON.stringify(mockFollowups, null, 2), "utf8");
   }
 } catch (e: any) {
   console.error("خطأ في قراءة ملف المتابعات:", e.message);
+  mockFollowups = defaultFollowups;
 }
 
 try {
@@ -382,6 +275,7 @@ try {
     "نصر": "nasr",
     "محمود": "mahmoud",
     "جميلة": "jamila",
+    "نبيل الزبير": "nabilalzubair",
     "نبيل": "nabil"
   };
 
@@ -562,7 +456,7 @@ app.get("/api/quotations", (req, res) => {
 
 // د) إضافة عرض سعر جديد
 app.post("/api/quotations", (req, res) => {
-  const { companyId, companyName, amount, details, exhibition, items } = req.body;
+  const { companyId, companyName, amount, details, exhibition, items, terms } = req.body;
   
   if (!companyId || !companyName) {
     return res.status(400).json({ error: "معرف واسم الشركة مطلوبين لإنشاء عرض سعر." });
@@ -578,6 +472,7 @@ app.post("/api/quotations", (req, res) => {
     "مبلغ العرض": Number(amount) || 0,
     "تفاصيل الخدمة / المعرض": details || "",
     "المعرض": exhibition || "",
+    "الشروط": terms || "",
     "حالة العرض": "جديد",
     "الرقم الضريبي": "",
     "العنوان الوطني": "",
@@ -595,7 +490,7 @@ app.post("/api/quotations", (req, res) => {
 // هـ) تعديل حالة وتفاصيل عرض السعر (التعميد وإدخال البيانات القانونية وتعديل البنود)
 app.patch("/api/quotations/:id", (req, res) => {
   const { id } = req.params;
-  const { status, taxNumber, nationalAddress, crNumber, items, amount, details, exhibition } = req.body;
+  const { status, taxNumber, nationalAddress, crNumber, items, amount, details, exhibition, terms, reason } = req.body;
 
   const qIdx = mockQuotations.findIndex(q => q.id === id);
   if (qIdx === -1) {
@@ -625,6 +520,12 @@ app.patch("/api/quotations/:id", (req, res) => {
   }
   if (exhibition !== undefined) {
     mockQuotations[qIdx]["المعرض"] = exhibition;
+  }
+  if (terms !== undefined) {
+    mockQuotations[qIdx]["الشروط"] = terms;
+  }
+  if (reason !== undefined) {
+    mockQuotations[qIdx]["سبب الرفض أو التأجيل"] = reason;
   }
 
   mockQuotations[qIdx]["تاريخ التحديث"] = new Date().toISOString().split("T")[0];
@@ -1647,29 +1548,134 @@ app.get("/api/companies", async (req, res) => {
     }
   } else {
     // ب) جلب الشركات الفردية الخاصة بالمندوب الفلاني
+    // تعديل: إذا كان هناك استعلام بحث (searchQuery)، يتم البحث في كامل قاعدة البيانات ولا يقتصر على المندوب فقط!
+    if (searchQuery) {
+      if (!cfg.isConfigured) {
+        const query = searchQuery.toLowerCase().trim();
+        const matched = mockCompanies.filter(c => 
+          String(c["اسم الشركة"] || "").toLowerCase().includes(query) ||
+          String(c["كود الشركة"] || "").toLowerCase().includes(query) ||
+          String(c["الجوال الرئيسي"] || "").toLowerCase().includes(query) ||
+          String(c["مسؤول المبيعات"] || "").toLowerCase().includes(query)
+        );
+        return res.json(matched);
+      }
+
+      try {
+        let baseUrl = `https://api.baserow.io/api/database/rows/table/${cfg.tableCompanies}/?user_field_names=true&size=${size}&search=${encodeURIComponent(searchQuery)}`;
+        const response = await fetch(baseUrl, { headers: getBaserowHeaders(cfg.token) });
+        if (!response.ok) {
+          throw new Error(`Baserow Search Fetch Error ${response.status}`);
+        }
+        const data = await response.json();
+        return res.json(data.results || []);
+      } catch (error) {
+        console.error("خطأ أثناء البحث العام للمندوب من Baserow:", error.message);
+        const query = searchQuery.toLowerCase().trim();
+        const matched = mockCompanies.filter(c => 
+          String(c["اسم الشركة"] || "").toLowerCase().includes(query) ||
+          String(c["كود الشركة"] || "").toLowerCase().includes(query) ||
+          String(c["الجوال الرئيسي"] || "").toLowerCase().includes(query) ||
+          String(c["مسؤول المبيعات"] || "").toLowerCase().includes(query)
+        );
+        return res.json(matched);
+      }
+    } else {
+      // جلب الشركات الخاصة بالمندوب فقط لعدم وجود استعلام بحث
+      if (!cfg.isConfigured) {
+        const filtered = mockCompanies.filter(
+          (c) => c["مسؤول المبيعات"] && c["مسؤول المبيعات"].trim() === representativeName.trim()
+        );
+        return res.json(filtered);
+      }
+
+      try {
+        let baseUrl = `https://api.baserow.io/api/database/rows/table/${cfg.tableCompanies}/?user_field_names=true&size=${size}&filter__field_مسؤول المبيعات__contains=${encodeURIComponent(representativeName.trim())}`;
+        const response = await fetch(baseUrl, { headers: getBaserowHeaders(cfg.token) });
+        if (!response.ok) {
+          throw new Error(`Baserow Rep Fetch Error ${response.status}`);
+        }
+        const data = await response.json();
+        const rows = data.results || [];
+        
+        const filtered = rows.filter((row) => {
+          const salesRep = row["مسؤول المبيعات"];
+          if (Array.isArray(salesRep)) {
+            return salesRep.some((item) => {
+              const nameVal = typeof item === "object" ? (item.value || item["الاسم"] || "") : String(item);
+              return nameVal.trim() === representativeName.trim();
+            });
+          } else if (typeof salesRep === "object" && salesRep !== null) {
+            const nameVal = salesRep.value || salesRep["الاسم"] || "";
+            return nameVal.trim() === representativeName.trim();
+          } else if (typeof salesRep === "string") {
+            return salesRep.trim() === representativeName.trim();
+          }
+          return false;
+        });
+
+        return res.json(filtered);
+      } catch (error) {
+        console.error("خطأ أثناء جلب الشركات للمندوب من Baserow:", error.message);
+        const filtered = mockCompanies.filter(
+          (c) => c["مسؤول المبيعات"] && c["مسؤول المبيعات"].trim() === representativeName.trim()
+        );
+        return res.json(filtered);
+      }
+    }
+  }
+});
+
+// ب) جلب الشركات الفردية الخاصة بالمندوب الفلاني عبر الرابط المخصص المباشر
+app.get("/api/companies-by-rep/:repName", async (req, res) => {
+  const representativeName = req.params.repName;
+  const size = req.query.size || 150;
+  const searchQuery = req.query.search ? String(req.query.search) : "";
+  const cfg = getBaserowConfig();
+
+  // تعديل: إذا كان هناك استعلام بحث (searchQuery)، يتم البحث في كامل قاعدة البيانات ولا يقتصر على المندوب فقط!
+  if (searchQuery) {
+    if (!cfg.isConfigured) {
+      const query = searchQuery.toLowerCase().trim();
+      const matched = mockCompanies.filter(c => 
+        String(c["اسم الشركة"] || "").toLowerCase().includes(query) ||
+        String(c["كود الشركة"] || "").toLowerCase().includes(query) ||
+        String(c["الجوال الرئيسي"] || "").toLowerCase().includes(query) ||
+        String(c["مسؤول المبيعات"] || "").toLowerCase().includes(query)
+      );
+      return res.json(matched);
+    }
+
+    try {
+      let baseUrl = `https://api.baserow.io/api/database/rows/table/${cfg.tableCompanies}/?user_field_names=true&size=${size}&search=${encodeURIComponent(searchQuery)}`;
+      const response = await fetch(baseUrl, { headers: getBaserowHeaders(cfg.token) });
+      if (!response.ok) {
+        throw new Error(`Baserow Search Fetch Error ${response.status}`);
+      }
+      const data = await response.json();
+      return res.json(data.results || []);
+    } catch (error) {
+      console.error("خطأ أثناء البحث العام للمندوب من Baserow:", error.message);
+      const query = searchQuery.toLowerCase().trim();
+      const matched = mockCompanies.filter(c => 
+        String(c["اسم الشركة"] || "").toLowerCase().includes(query) ||
+        String(c["كود الشركة"] || "").toLowerCase().includes(query) ||
+        String(c["الجوال الرئيسي"] || "").toLowerCase().includes(query) ||
+        String(c["مسؤول المبيعات"] || "").toLowerCase().includes(query)
+      );
+      return res.json(matched);
+    }
+  } else {
+    // جلب الشركات الخاصة بالمندوب فقط لعدم وجود استعلام بحث
     if (!cfg.isConfigured) {
       const filtered = mockCompanies.filter(
         (c) => c["مسؤول المبيعات"] && c["مسؤول المبيعات"].trim() === representativeName.trim()
       );
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        return res.json(filtered.filter(c => 
-          String(c["اسم الشركة"] || "").toLowerCase().includes(query) ||
-          String(c["كود الشركة"] || "").toLowerCase().includes(query) ||
-          String(c["الجوال الرئيسي"] || "").toLowerCase().includes(query)
-        ));
-      }
       return res.json(filtered);
     }
 
     try {
-      // نطلب تصفية السجلات من خادم Baserow فورياً لزيادة سرعة الأداء وكفاءة الاستعلام لـ 30 ألف عميل!
       let baseUrl = `https://api.baserow.io/api/database/rows/table/${cfg.tableCompanies}/?user_field_names=true&size=${size}&filter__field_مسؤول المبيعات__contains=${encodeURIComponent(representativeName.trim())}`;
-      
-      if (searchQuery) {
-        baseUrl += `&search=${encodeURIComponent(searchQuery)}`;
-      }
-
       const response = await fetch(baseUrl, { headers: getBaserowHeaders(cfg.token) });
       if (!response.ok) {
         throw new Error(`Baserow Rep Fetch Error ${response.status}`);
@@ -1677,7 +1683,6 @@ app.get("/api/companies", async (req, res) => {
       const data = await response.json();
       const rows = data.results || [];
       
-      // فلترة دقيقة إضافية للتأكد من عدم حدوث أي تداخل
       const filtered = rows.filter((row) => {
         const salesRep = row["مسؤول المبيعات"];
         if (Array.isArray(salesRep)) {
@@ -1696,74 +1701,12 @@ app.get("/api/companies", async (req, res) => {
 
       return res.json(filtered);
     } catch (error) {
-      console.error("خطأ أثناء جلب الشركات التكراري للمندوب من Baserow:", error.message);
+      console.error("خطأ أثناء جلب الشركات للمندوب من Baserow:", error.message);
       const filtered = mockCompanies.filter(
         (c) => c["مسؤول المبيعات"] && c["مسؤول المبيعات"].trim() === representativeName.trim()
       );
       return res.json(filtered);
     }
-  }
-});
-
-// ب) جلب الشركات الفردية الخاصة بالمندوب الفلاني عبر الرابط المخصص المباشر
-app.get("/api/companies-by-rep/:repName", async (req, res) => {
-  const representativeName = req.params.repName;
-  const size = req.query.size || 150;
-  const searchQuery = req.query.search ? String(req.query.search) : "";
-  const cfg = getBaserowConfig();
-
-  if (!cfg.isConfigured) {
-    const filtered = mockCompanies.filter(
-      (c) => c["مسؤول المبيعات"] && c["مسؤول المبيعات"].trim() === representativeName.trim()
-    );
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      return res.json(filtered.filter(c => 
-        String(c["اسم الشركة"] || "").toLowerCase().includes(query) ||
-        String(c["كود الشركة"] || "").toLowerCase().includes(query) ||
-        String(c["الجوال الرئيسي"] || "").toLowerCase().includes(query)
-      ));
-    }
-    return res.json(filtered);
-  }
-
-  try {
-    let baseUrl = `https://api.baserow.io/api/database/rows/table/${cfg.tableCompanies}/?user_field_names=true&size=${size}&filter__field_مسؤول المبيعات__contains=${encodeURIComponent(representativeName.trim())}`;
-    
-    if (searchQuery) {
-      baseUrl += `&search=${encodeURIComponent(searchQuery)}`;
-    }
-
-    const response = await fetch(baseUrl, { headers: getBaserowHeaders(cfg.token) });
-    if (!response.ok) {
-      throw new Error(`Baserow Rep Fetch Error ${response.status}`);
-    }
-    const data = await response.json();
-    const rows = data.results || [];
-    
-    const filtered = rows.filter((row) => {
-      const salesRep = row["مسؤول المبيعات"];
-      if (Array.isArray(salesRep)) {
-        return salesRep.some((item) => {
-          const nameVal = typeof item === "object" ? (item.value || item["الاسم"] || "") : String(item);
-          return nameVal.trim() === representativeName.trim();
-        });
-      } else if (typeof salesRep === "object" && salesRep !== null) {
-        const nameVal = salesRep.value || salesRep["الاسم"] || "";
-        return nameVal.trim() === representativeName.trim();
-      } else if (typeof salesRep === "string") {
-        return salesRep.trim() === representativeName.trim();
-      }
-      return false;
-    });
-
-    return res.json(filtered);
-  } catch (error) {
-    console.error("خطأ أثناء جلب الشركات التكراري للمندوب من Baserow:", error.message);
-    const filtered = mockCompanies.filter(
-      (c) => c["مسؤول المبيعات"] && c["مسؤول المبيعات"].trim() === representativeName.trim()
-    );
-    return res.json(filtered);
   }
 });
 
@@ -1778,10 +1721,15 @@ app.post("/api/login", async (req, res) => {
   const typedUsername = username.trim().toLowerCase();
 
   // 1. فحص المدير العام (نبيل الزبير)
-  const managerUsername = (process.env.MANAGER_USERNAME || "admin").trim().toLowerCase();
-  const managerPassword = process.env.MANAGER_PASSWORD || "admin123";
+  const managerUsername = (process.env.MANAGER_USERNAME || "nabilalzubair").trim().toLowerCase();
+  const managerPassword = process.env.MANAGER_PASSWORD || "3429003";
+
+  // 1.5. فحص مدير المبيعات
+  const salesManagerUsername = (process.env.SALES_MANAGER_USERNAME || "salesmanager").trim().toLowerCase();
+  const salesManagerPassword = process.env.SALES_MANAGER_PASSWORD || "salesmanager123";
 
   const isGM = (typedUsername === managerUsername);
+  const isSalesManager = (typedUsername === salesManagerUsername);
 
   // 2. البحث عن المندوب باسم المستخدم
   const foundRepByUsername = mockEmployeesList.find((emp: any) => {
@@ -1789,8 +1737,8 @@ app.post("/api/login", async (req, res) => {
     return empUser === typedUsername;
   });
 
-  // إذا لم يكن المدير ولا الموظف موجودين
-  if (!isGM && !foundRepByUsername) {
+  // إذا لم يكن المدير ولا مدير المبيعات ولا الموظف موجودين
+  if (!isGM && !isSalesManager && !foundRepByUsername) {
     return res.status(401).json({ 
       error: "اسم المستخدم غير صحيح أو غير مسجل في النظام 🔍. يرجى التأكد من كتابة الاسم الصحيح أو مراجعة الإدارة." 
     });
@@ -1807,6 +1755,21 @@ app.post("/api/login", async (req, res) => {
     } else {
       return res.status(401).json({ 
         error: "كلمة المرور التي أدخلتها غير صحيحة 🔑. يرجى التأكد من كلمة المرور الخاصة بحساب المدير." 
+      });
+    }
+  }
+
+  // إذا كان المستخدم هو مدير المبيعات
+  if (isSalesManager) {
+    if (password === salesManagerPassword) {
+      return res.json({
+        success: true,
+        role: "sales_manager",
+        user: { name: "مدير المبيعات المعتمد", email: "salesmanager@expotime.com" }
+      });
+    } else {
+      return res.status(401).json({ 
+        error: "كلمة المرور التي أدخلتها غير صحيحة 🔑. يرجى التأكد من كلمة المرور الخاصة بحساب مدير المبيعات." 
       });
     }
   }
@@ -2017,6 +1980,202 @@ app.post("/api/companies/batch", async (req, res) => {
   }
 });
 
+// ==========================================
+// مضاف: نظام إدارة المعارض وطلبات نقل الإسناد والربط
+// ==========================================
+
+app.get("/api/exhibitions", (req, res) => {
+  res.json(mockExhibitions);
+});
+
+app.post("/api/exhibitions", (req, res) => {
+  const { name, city, date, rep } = req.body;
+  if (!name) {
+    return res.status(400).json({ error: "اسم المعرض حقل إجباري" });
+  }
+  const newEx = {
+    id: "ex-" + Date.now(),
+    "اسم المعرض": name,
+    "المدينة": city || "الرياض",
+    "التاريخ": date || "",
+    "المندوب المسؤول": rep || "غير مسند"
+  };
+  mockExhibitions.push(newEx);
+  saveExhibitionsLocal();
+  res.json({ success: true, data: newEx });
+});
+
+app.patch("/api/exhibitions/:id", (req, res) => {
+  const { id } = req.params;
+  const { name, city, date, rep, "المندوب المسؤول": repName } = req.body;
+  const idx = mockExhibitions.findIndex(ex => String(ex.id) === String(id));
+  if (idx === -1) {
+    return res.status(404).json({ error: "المعرض غير موجود" });
+  }
+  if (name !== undefined) mockExhibitions[idx]["اسم المعرض"] = name;
+  if (city !== undefined) mockExhibitions[idx]["المدينة"] = city;
+  if (date !== undefined) mockExhibitions[idx]["التاريخ"] = date;
+  
+  const targetRep = rep !== undefined ? rep : repName;
+  if (targetRep !== undefined) {
+    mockExhibitions[idx]["المندوب المسؤول"] = targetRep || "غير مسند";
+  }
+  
+  saveExhibitionsLocal();
+  res.json({ success: true, data: mockExhibitions[idx] });
+});
+
+app.delete("/api/exhibitions/:id", (req, res) => {
+  const { id } = req.params;
+  const idx = mockExhibitions.findIndex(ex => String(ex.id) === String(id));
+  if (idx === -1) {
+    return res.status(404).json({ error: "المعرض غير موجود" });
+  }
+  mockExhibitions.splice(idx, 1);
+  saveExhibitionsLocal();
+  res.json({ success: true, message: "تم حذف المعرض بنجاح" });
+});
+
+app.get("/api/transfer-requests", (req, res) => {
+  res.json(mockTransferRequests);
+});
+
+app.post("/api/transfer-requests", (req, res) => {
+  const { companyId, companyName, fromRep, toRep, reason } = req.body;
+  if (!companyId || !toRep) {
+    return res.status(400).json({ error: "بيانات الطلب غير مكتملة" });
+  }
+  
+  // فحص ما إذا كان هناك طلب معلق بالفعل لنفس الشركة لنفس المندوب لتجنب التكرار
+  const existingPending = mockTransferRequests.find(r => 
+    String(r.companyId) === String(companyId) && 
+    String(r.toRep).trim() === String(toRep).trim() && 
+    r.status === "pending"
+  );
+  if (existingPending) {
+    return res.status(400).json({ error: "لقد قمت بتقديم طلب لنقل إسناد هذا العميل وهو قيد المراجعة حالياً من قبل الإدارة." });
+  }
+
+  const newReq = {
+    id: "tr-" + Date.now(),
+    companyId,
+    companyName: companyName || "",
+    fromRep: fromRep || "غير مسند",
+    toRep,
+    reason: reason || "",
+    status: "pending",
+    requestDate: new Date().toISOString()
+  };
+  mockTransferRequests.push(newReq);
+  saveTransferRequestsLocal();
+  res.json({ success: true, data: newReq });
+});
+
+app.patch("/api/transfer-requests/:id", async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body; // "approved" | "rejected"
+  if (!status || !["approved", "rejected"].includes(status)) {
+    return res.status(400).json({ error: "الحالة غير صالحة" });
+  }
+  const idx = mockTransferRequests.findIndex(r => String(r.id) === String(id));
+  if (idx === -1) {
+    return res.status(404).json({ error: "الطلب غير موجود" });
+  }
+  
+  mockTransferRequests[idx].status = status;
+  
+  if (status === "approved") {
+    const { companyId, toRep } = mockTransferRequests[idx];
+    
+    // تحديث الشركة محلياً
+    const companyIndex = mockCompanies.findIndex(c => String(c.id) === String(companyId));
+    if (companyIndex !== -1) {
+      mockCompanies[companyIndex]["مسؤول المبيعات"] = toRep;
+      saveCompaniesLocal();
+      console.log(`Updated company ${companyId} owner to ${toRep} via approved transfer request`);
+    } else {
+      // محاولة التحديث في Baserow إذا كان مفعلاً
+      const cfg = getBaserowConfig();
+      if (cfg.isConfigured) {
+        try {
+          const updateUrl = `https://api.baserow.io/api/database/rows/table/${cfg.tableCompanies}/${companyId}/?user_field_names=true`;
+          await fetch(updateUrl, {
+            method: "PATCH",
+            headers: getBaserowHeaders(cfg.token),
+            body: JSON.stringify({ "مسؤول المبيعات": toRep })
+          });
+          console.log(`Updated Baserow company ${companyId} owner to ${toRep}`);
+        } catch (err: any) {
+          console.error("Failed to update company owner in Baserow:", err.message);
+        }
+      }
+    }
+  }
+  
+  saveTransferRequestsLocal();
+  res.json({ success: true, data: mockTransferRequests[idx] });
+});
+
+app.get("/api/exhibition-requests", (req, res) => {
+  res.json(mockExhibitionRequests);
+});
+
+app.post("/api/exhibition-requests", (req, res) => {
+  const { exhibitionId, exhibitionName, repName, notes } = req.body;
+  if (!exhibitionId || !repName) {
+    return res.status(400).json({ error: "بيانات الطلب غير مكتملة" });
+  }
+  
+  // تجنب تكرار الطلبات المعلقة
+  const existingPending = mockExhibitionRequests.find(r => 
+    String(r.exhibitionId) === String(exhibitionId) && 
+    String(r.repName).trim() === String(repName).trim() && 
+    r.status === "pending"
+  );
+  if (existingPending) {
+    return res.status(400).json({ error: "لقد قمت بتقديم طلب مسبق لربط هذا المعرض وهو قيد الدراسة من الإدارة." });
+  }
+
+  const newReq = {
+    id: "er-" + Date.now(),
+    exhibitionId,
+    exhibitionName: exhibitionName || "",
+    repName,
+    notes: notes || "",
+    status: "pending",
+    requestDate: new Date().toISOString()
+  };
+  mockExhibitionRequests.push(newReq);
+  saveExhibitionRequestsLocal();
+  res.json({ success: true, data: newReq });
+});
+
+app.patch("/api/exhibition-requests/:id", (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body; // "approved" | "rejected"
+  if (!status || !["approved", "rejected"].includes(status)) {
+    return res.status(400).json({ error: "الحالة غير صالحة" });
+  }
+  const idx = mockExhibitionRequests.findIndex(r => String(r.id) === String(id));
+  if (idx === -1) {
+    return res.status(404).json({ error: "الطلب غير موجود" });
+  }
+  
+  mockExhibitionRequests[idx].status = status;
+  
+  if (status === "approved") {
+    const { exhibitionId, repName } = mockExhibitionRequests[idx];
+    const exIdx = mockExhibitions.findIndex(ex => String(ex.id) === String(exhibitionId));
+    if (exIdx !== -1) {
+      mockExhibitions[exIdx]["المندوب المسؤول"] = repName;
+      saveExhibitionsLocal();
+    }
+  }
+  
+  saveExhibitionRequestsLocal();
+  res.json({ success: true, data: mockExhibitionRequests[idx] });
+});
+
 // مضاف: رابط إضافة شركة جديدة أو لوحة إدخال (يدوي أو من ملف إكسل)
 app.post("/api/companies", async (req, res) => {
   const { companies } = req.body;
@@ -2069,9 +2228,11 @@ app.post("/api/companies", async (req, res) => {
         error: "DUPLICATE_COMPANY",
         message: `تنبيه: هذا العميل موجود مسبقاً! الكود الخاص به هو: ${duplicate["كود الشركة"] || "غير متوفر"}، واسم العميل المسجل هو: ${duplicate["اسم الشركة"]} ومسؤول المبيعات الحالي: ${duplicate["مسؤول المبيعات"] || "غير محدد"}.`,
         existingCompany: {
+          id: duplicate.id || duplicate["id"],
           "كود الشركة": duplicate["كود الشركة"] || "غير متوفر",
           "اسم الشركة": duplicate["اسم الشركة"] || "غير معروف",
           "مسؤول المبيعات": duplicate["مسؤول المبيعات"] || "غير محدد",
+          "الحالة": duplicate["الحالة"] || "جديد",
           "الجوال الرئيسي": duplicate["الجوال الرئيسي"] || "غير مسجل"
         }
       });
@@ -2333,6 +2494,8 @@ app.patch("/api/employees/:id", async (req, res) => {
   const reqEmail = email || req.body["البريد الإلكتروني"];
   const reqPhone = phone !== undefined ? phone : req.body["الجوال"];
   const reqDept = department !== undefined ? department : req.body["القسم"];
+  const reqUsername = req.body["اسم المستخدم"];
+  const reqPassword = req.body["كلمة المرور"];
 
   if (!cfg.isConfigured || !cfg.tableEmployees) {
     const targetId = Number(id) || id;
@@ -2342,6 +2505,8 @@ app.patch("/api/employees/:id", async (req, res) => {
       if (reqEmail) mockEmployeesList[empIdx]["البريد الإلكتروني"] = serverFormatEmail(reqEmail);
       if (reqPhone !== undefined) mockEmployeesList[empIdx]["الجوال"] = serverFormatPhone(reqPhone);
       if (reqDept !== undefined) mockEmployeesList[empIdx]["القسم"] = reqDept;
+      if (reqUsername) mockEmployeesList[empIdx]["اسم المستخدم"] = reqUsername;
+      if (reqPassword) mockEmployeesList[empIdx]["كلمة المرور"] = reqPassword;
 
       const finalEmp = mockEmployeesList[empIdx];
       const dbId = cfg.databaseId || "config_needed";
@@ -2352,6 +2517,7 @@ app.patch("/api/employees/:id", async (req, res) => {
 📧 *البريد الإلكتروني:* ${finalEmp["البريد الإلكتروني"]}
 📞 *رقم الجوال:* ${finalEmp["الجوال"] || 'غير رئيسي / غير متوفر'}
 💼 *القسم الإداري:* ${finalEmp["القسم"] || 'المبيعات'}
+👤 *اسم المستخدم:* ${finalEmp["اسم المستخدم"] || 'غير معين'}
 🔄 *الإجراء:* تم تحديث وتعديل بيانات المندوب وحفظها محلياً بنجاح في المنظومة.
 
 🔗 *رابط المندوب المباشر في جدول Baserow:*
@@ -2378,6 +2544,8 @@ https://baserow.io/database/${dbId}/table/${tblEmp}?grid-search=${encodeURICompo
     if (reqEmail) bodyPayload["البريد الإلكتروني"] = serverFormatEmail(reqEmail);
     if (reqPhone !== undefined) bodyPayload["الجوال"] = serverFormatPhone(reqPhone);
     if (reqDept !== undefined) bodyPayload["القسم"] = reqDept;
+    if (reqUsername) bodyPayload["اسم المستخدم"] = reqUsername;
+    if (reqPassword) bodyPayload["كلمة المرور"] = reqPassword;
 
     const response = await fetch(url, {
       method: "PATCH",

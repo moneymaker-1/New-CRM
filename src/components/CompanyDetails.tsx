@@ -28,7 +28,7 @@ import {
   Share2,
   Trash2
 } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { 
   Company, 
   Followup, 
@@ -100,6 +100,7 @@ export default function CompanyDetails({
   const [newQuotationAmount, setNewQuotationAmount] = useState("");
   const [newQuotationDetails, setNewQuotationDetails] = useState("");
   const [newQuotationExhibition, setNewQuotationExhibition] = useState("");
+  const [newQuotationTerms, setNewQuotationTerms] = useState("الشروط والأحكام:\n١. يسري هذا العرض لمدة ١٥ يوماً من تاريخ صدوره.\n٢. طريقة الدفع: ٥٠٪ دفعة مقدمة عند التعميد و٥٠٪ عند الانتهاء وقبل التوريد.\n٣. مدة التنفيذ: تبدأ من تاريخ استلام الدفعة المقدمة والتعميد الرسمي.");
   const [submittingQuotation, setSubmittingQuotation] = useState(false);
 
   // حالات بنود عرض السعر الحالي أثناء الإنشاء
@@ -110,6 +111,11 @@ export default function CompanyDetails({
   // حالة عرض تفاصيل السعر في المودال الرسمي للاستعراض والطباعة
   const [selectedPreviewQuote, setSelectedPreviewQuote] = useState<any | null>(null);
   const [isSendingClientEmail, setIsSendingClientEmail] = useState<string | null>(null);
+  const [activeReasonInputId, setActiveReasonInputId] = useState<string | null>(null);
+  const [activeReasonType, setActiveReasonType] = useState<"رفض" | "تأجيل" | null>(null);
+  const [currentReasonText, setCurrentReasonText] = useState("");
+  const [emailInputQuotationId, setEmailInputQuotationId] = useState<string | null>(null);
+  const [customClientEmail, setCustomClientEmail] = useState("");
 
   // حالات ملفات السندات الرسمية المرفقة للمحاسب
   const [taxNumberFile, setTaxNumberFile] = useState<{ name: string; content: string } | null>(null);
@@ -329,6 +335,7 @@ export default function CompanyDetails({
           amount: calculatedSubtotal, // مبلغ العرض الإجمالي قبل الضريبة
           details: quotationItems.map(it => `${it.description} (الكمية: ${it.qty})`).join(" | "),
           exhibition: newQuotationExhibition || company["المعرض"] || "",
+          terms: newQuotationTerms,
           items: quotationItems.map(it => ({
             description: it.description,
             qty: Number(it.qty) || 1,
@@ -353,17 +360,15 @@ export default function CompanyDetails({
     }
   };
 
-  const handleSendClientQuotationEmail = async (q: any) => {
+  const handleSendClientQuotationEmail = async (q: any, forcedEmail?: string) => {
     setIsSendingClientEmail(q.id);
     try {
-      const emailToUse = company["البريد الإلكتروني"] || company["بريد"] || "";
+      const emailToUse = forcedEmail || company["البريد الإلكتروني"] || company["بريد"] || "";
       if (!emailToUse) {
-        const customEmail = prompt("بريد العميل غير مسجل في البيانات. يرجى إدخال البريد الإلكتروني للعميل لإرسال العرض:", "");
-        if (!customEmail) {
-          setIsSendingClientEmail(null);
-          return;
-        }
-        company["البريد الإلكتروني"] = customEmail;
+        setEmailInputQuotationId(q.id);
+        setCustomClientEmail("");
+        setIsSendingClientEmail(null);
+        return;
       }
 
       const response = await fetch("/api/quotations/send-client-email", {
@@ -372,7 +377,7 @@ export default function CompanyDetails({
         body: JSON.stringify({
           quotationId: q.id,
           clientName: getSafeString(company["اسم الشركة"]),
-          clientEmail: company["البريد الإلكتروني"] || company["بريد"] || emailToUse,
+          clientEmail: emailToUse,
           items: q.items || [
             { description: q["تفاصيل الخدمة / المعرض"] || "تصميم وتنفيذ جناح عرض", qty: 1, price: q["مبلغ العرض"], total: q["مبلغ العرض"] }
           ],
@@ -416,20 +421,24 @@ export default function CompanyDetails({
       { description: q["تفاصيل الخدمة / المعرض"] || "تصميم وتنفيذ جناح عرض", qty: 1, price: q["مبلغ العرض"], total: q["مبلغ العرض"] }
     ]).map((it: any, idx: number) => `- ${it.description} (الكمية: ${it.qty} | السعر: ${it.price} ر.س)`).join("\n");
 
+    const termsStr = q["الشروط"] ? `\n\n*الشروط والأحكام الخاصة بالعرض:*\n${q["الشروط"]}` : "";
+
     const messageText = `السلام عليكم ورحمة الله وبركاته،
 أ. ${getSafeString(company["اسم الشركة"])}،
 
 يسعدنا في إكسبو تايم لتنظيم المعارض والمؤتمرات تزويدكم بعرض السعر المالي لـ: ${q["المعرض"] || company["المعرض"] || "مشاركتكم الموقرة"}.
 
-رقم العرض: ${q["رقم العرض"]}
-التاريخ: ${q["تاريخ العرض"]}
+*رقم العرض:* ${q["رقم العرض"]}
+*التاريخ:* ${q["تاريخ العرض"]}
 
-البنود المشمولة بالعرض:
+*البنود المشمولة بالعرض:*
 ${itemsStr}
 
-المجموع قبل الضريبة: ${q["مبلغ العرض"]} ر.س
-ضريبة القيمة المضافة (15%): ${(Number(q["مبلغ العرض"]) * 0.15).toFixed(2)} ر.س
-الإجمالي شامل الضريبة: ${(Number(q["مبلغ العرض"]) * 1.15).toFixed(2)} ر.س
+*المجموع قبل الضريبة:* ${q["مبلغ العرض"]} ر.س
+*ضريبة القيمة المضافة (15%):* ${(Number(q["مبلغ العرض"]) * 0.15).toFixed(2)} ر.س
+*الإجمالي شامل الضريبة:* ${(Number(q["مبلغ العرض"]) * 1.15).toFixed(2)} ر.س${termsStr}
+
+📝 *ملاحظة:* يرجى الاطلاع على عرض السعر الرسمي المرفق (PDF) لمعاينة تفاصيل التصاميم ثلاثية الأبعاد والتواقيع والاعتمادات الرسمية المرفقة مع هذه الرسالة.
 
 نتطلع للتعاون المثمر معكم لتقديم جناح عرض متميز واستثنائي بالمعرض.
 
@@ -441,10 +450,13 @@ ${itemsStr}
     window.open(whatsappUrl, "_blank");
   };
 
-  const handleUpdateQuotationStatus = async (qId: string, nextStatus: string) => {
+  const handleUpdateQuotationStatus = async (qId: string, nextStatus: string, reason?: string) => {
     try {
       const payload: any = { status: nextStatus };
-      if (nextStatus === "تم التعميد") {
+      if (reason) {
+        payload.reason = reason;
+      }
+      if (nextStatus === "تم التعميد" || nextStatus === "تم الاعتماد") {
         payload.taxNumber = tempTaxNumber;
         payload.nationalAddress = tempNationalAddress;
         payload.crNumber = tempCrNumber;
@@ -456,7 +468,7 @@ ${itemsStr}
       });
       if (response.ok) {
         await fetchCompanyQuotations();
-        if (nextStatus === "تم التعميد") {
+        if (nextStatus === "تم التعميد" || nextStatus === "تم الاعتماد") {
           setStatus("تم التعميد");
         }
         alert("تم تحديث حالة عرض السعر بنجاح! 🟢");
@@ -798,6 +810,7 @@ ${itemsStr}
                   onChange={(e) => setCompanyRep(e.target.value)}
                   className="w-full text-xs rounded-lg border border-slate-200 px-3 py-2 bg-white text-slate-850 focus:ring-2 focus:ring-amber-400 cursor-pointer animate-none"
                 >
+                  <option value="غير مسند">عميل مفتوح (غير مسند) 🔓</option>
                   {employeesList && employeesList.length > 0 ? (
                     employeesList.map((emp: any) => (
                       <option key={emp.id} value={emp["الاسم"] || emp.name}>{emp["الاسم"] || emp.name}</option>
@@ -1177,13 +1190,13 @@ ${itemsStr}
                           <tr key={item.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
                             <td className="p-2 text-center text-slate-400 font-bold">{idx + 1}</td>
                             <td className="p-1">
-                              <input
-                                type="text"
+                              <textarea
                                 required
+                                rows={2}
                                 value={item.description}
                                 onChange={(e) => updateQuotationItemLine(item.id, "description", e.target.value)}
-                                placeholder="مثال: تنفيذ ديكور خشبي للجناح"
-                                className="w-full text-xs px-2 py-1 border border-slate-150 rounded-md focus:ring-1 focus:ring-blue-500"
+                                placeholder="مثال: تنفيذ ديكور خشبي للجناح (يمكنك كتابة أسطر متعددة)"
+                                className="w-full text-xs px-2 py-1.5 border border-slate-150 rounded-md focus:ring-1 focus:ring-blue-500 resize-y min-h-[44px]"
                               />
                             </td>
                             <td className="p-1">
@@ -1239,6 +1252,18 @@ ${itemsStr}
                       <span className="font-extrabold text-slate-900 text-sm">الإجمالي النهائي:</span>
                       <span className="font-black text-emerald-700 text-sm font-mono">{calculatedGrandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</span>
                     </div>
+                  </div>
+
+                  {/* صندوق الشروط والأحكام أسفل عرض السعر */}
+                  <div className="space-y-1 bg-white border border-slate-200 rounded-xl p-3 text-right">
+                    <label className="text-[10px] font-bold text-slate-600 block mb-1">شروط وأحكام عرض السعر (تظهر أسفل العرض الرسمي):</label>
+                    <textarea
+                      rows={4}
+                      value={newQuotationTerms}
+                      onChange={(e) => setNewQuotationTerms(e.target.value)}
+                      placeholder="اكتب هنا شروط السداد، الضمان، التوريد، مدة الصلاحية، إلخ..."
+                      className="w-full text-xs p-2.5 border border-slate-150 rounded-lg focus:ring-1 focus:ring-blue-500 whitespace-pre-line bg-slate-50/50"
+                    />
                   </div>
                 </div>
 
@@ -1377,6 +1402,148 @@ ${itemsStr}
                         </div>
                       </div>
 
+                      {/* واجهة إدخال البريد الإلكتروني للعميل إذا لم يكن موجوداً */}
+                      {emailInputQuotationId === q.id && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.98 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="bg-indigo-50 border border-indigo-200 rounded-xl p-3.5 space-y-2 text-right"
+                        >
+                          <label className="text-[10px] font-black text-indigo-900 block">
+                            📧 بريد العميل الإلكتروني غير مسجل. يرجى إدخاله لإتمام الإرسال:
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              type="email"
+                              value={customClientEmail}
+                              onChange={(e) => setCustomClientEmail(e.target.value)}
+                              placeholder="example@company.com"
+                              className="w-full text-xs p-2 border border-indigo-300 rounded-lg focus:ring-1 focus:ring-indigo-500 bg-white text-slate-800 text-left font-mono"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!customClientEmail.trim() || !customClientEmail.includes("@")) {
+                                  alert("يرجى إدخال بريد إلكتروني صحيح.");
+                                  return;
+                                }
+                                handleSendClientQuotationEmail(q, customClientEmail);
+                                setEmailInputQuotationId(null);
+                              }}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black px-4 py-2 rounded-lg transition-all shrink-0 cursor-pointer"
+                            >
+                              إرسال الآن ✉️
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEmailInputQuotationId(null)}
+                              className="bg-white hover:bg-slate-100 text-slate-600 text-[10px] font-bold px-3 py-2 rounded-lg border border-slate-250 transition-all shrink-0 cursor-pointer"
+                            >
+                              إلغاء
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {/* إذا كان هناك سبب رفض أو تأجيل مكتوب */}
+                      {q["سبب الرفض أو التأجيل"] && (
+                        <div className="bg-rose-50 border border-rose-150 rounded-xl p-3 text-xs text-rose-800 font-sans text-right">
+                          ⚠️ <b>السبب المسجل للرفض/التأجيل:</b> {q["سبب الرفض أو التأجيل"]}
+                        </div>
+                      )}
+
+                      {/* لوحة التحكم بالحالة: تم الاعتماد - تم الرفض - تم تأجيل التعميد */}
+                      <div className="bg-slate-50/50 border border-slate-200 rounded-xl p-3 space-y-2 text-right">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-600 font-bold">تحديث حالة الاعتماد والتعميد:</span>
+                          <span className="text-[10px] text-slate-400 font-sans">الحالة الحالية: {q["حالة العرض"]}</span>
+                        </div>
+                        
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateQuotationStatus(q.id, "تم الاعتماد")}
+                            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[10px] font-black px-3 py-1.5 rounded-lg border border-emerald-200 transition-all cursor-pointer"
+                          >
+                            🤝 تم الاعتماد (سعر متفق عليه)
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveReasonInputId(q.id);
+                              setActiveReasonType("رفض");
+                              setCurrentReasonText("");
+                            }}
+                            className="bg-red-50 hover:bg-red-100 text-red-750 text-[10px] font-black px-3 py-1.5 rounded-lg border border-red-200 transition-all cursor-pointer"
+                          >
+                            ❌ تم الرفض مع ذكر السبب
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveReasonInputId(q.id);
+                              setActiveReasonType("تأجيل");
+                              setCurrentReasonText("");
+                            }}
+                            className="bg-amber-50 hover:bg-amber-100 text-amber-700 text-[10px] font-black px-3 py-1.5 rounded-lg border border-amber-200 transition-all cursor-pointer"
+                          >
+                            ⏳ تم تأجيل التعميد مع ذكر السبب
+                          </button>
+                        </div>
+
+                        {/* إدخال السبب التفاعلي المباشر */}
+                        {activeReasonInputId === q.id && activeReasonType && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="bg-white border border-slate-200 rounded-lg p-3 space-y-2 mt-2"
+                          >
+                            <label className="text-[10px] font-bold text-slate-700 block">
+                              يرجى كتابة سبب {activeReasonType === "رفض" ? "الرفض" : "التأجيل"} أدناه:
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={currentReasonText}
+                              onChange={(e) => setCurrentReasonText(e.target.value)}
+                              placeholder={`اكتب هنا تفاصيل سبب الـ${activeReasonType}...`}
+                              className="w-full text-xs p-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 text-slate-800"
+                            />
+                            <div className="flex justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveReasonInputId(null);
+                                  setActiveReasonType(null);
+                                }}
+                                className="px-2.5 py-1 text-slate-500 hover:bg-slate-100 rounded text-[10px] font-bold"
+                              >
+                                إلغاء
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!currentReasonText.trim()) {
+                                    alert("يرجى كتابة السبب أولاً.");
+                                    return;
+                                  }
+                                  const finalStatus = activeReasonType === "رفض" 
+                                    ? "تم الرفض مع ذكر السبب" 
+                                    : "تم تأجيل التعميد مع ذكر السبب";
+                                  handleUpdateQuotationStatus(q.id, finalStatus, currentReasonText);
+                                  setActiveReasonInputId(null);
+                                  setActiveReasonType(null);
+                                }}
+                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-black cursor-pointer"
+                              >
+                                حفظ وتحديث الحالة 💾
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </div>
+
                       {/* واجهة إدخال بيانات التعميد عند النقر */}
                       {!isApproved && (
                         <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl space-y-3">
@@ -1479,17 +1646,18 @@ ${itemsStr}
                           <div className="flex justify-end pt-2">
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={async () => {
                                 if (!tempTaxNumber || !tempCrNumber || !tempNationalAddress) {
                                   alert("الرجاء إدخال كافة المستندات (الرقم الضريبي، السجل التجاري، العنوان الوطني) قبل التعميد.");
                                   return;
                                 }
-                                handleUpdateQuotationStatus(q.id, "تم التعميد");
+                                await handleUpdateQuotationStatus(q.id, "تم التعميد");
+                                await handleSendAccountingEmail(q);
                               }}
                               className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-extrabold px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 shadow-sm"
                             >
                               <CheckCircle2 className="w-3 h-3" />
-                              <span>تغيير الحالة إلى [ تم التعميد ] وتثبيت السندات الرسمية والمرفقات ✅</span>
+                              <span>تغيير الحالة إلى [ تم التعميد ] وتثبيت السندات الرسمية والمرفقات وإرسالها للمحاسب فوراً 📤✅</span>
                             </button>
                           </div>
                         </div>
@@ -1561,6 +1729,139 @@ ${itemsStr}
           {/* ======================================================= */}
 
         </div>
+
+        {/* مودال استعراض وطباعة العرض المالي الرسمي */}
+        <AnimatePresence>
+          {selectedPreviewQuote && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 overflow-y-auto print:p-0 print:static print:bg-white text-right">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full p-8 space-y-6 text-right text-slate-800 relative print:shadow-none print:border-none print:p-0 print:max-w-none"
+              >
+                {/* أزرار الإغلاق والطباعة في الشاشة فقط */}
+                <div className="flex items-center justify-between border-b border-slate-200 pb-4 print:hidden">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        window.print();
+                      }}
+                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-blue-600/10"
+                    >
+                      <Printer className="w-4 h-4" />
+                      <span>طباعة العرض المالي الآن 🖨️</span>
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setSelectedPreviewQuote(null)}
+                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-full transition-all cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* ورقة عرض السعر الرسمية القابلة للطباعة */}
+                <div id="printable-quote-area" className="space-y-6 print:py-4">
+                  {/* ترويسة الشركة */}
+                  <div className="flex items-start justify-between border-b-2 border-slate-300 pb-4">
+                    <div className="text-right space-y-1">
+                      <h2 className="text-lg font-black text-slate-900">إكسبو تايم لتنظيم المعارض والمؤتمرات</h2>
+                      <p className="text-[10px] text-slate-500 font-bold font-mono">EXPOTIME FOR EXHIBITIONS & CONFERENCES</p>
+                      <p className="text-[10px] text-slate-500">الرقم الضريبي للمنشأة: ٣٠٠٤٥٩٧٨٤٣٠٠٠٠٣</p>
+                    </div>
+                    <div className="text-left font-sans text-left space-y-1">
+                      <div className="text-blue-600 font-black text-sm">عرض سعر مالي رسمي</div>
+                      <div className="text-[10px] text-slate-500 font-mono">الرقم: {selectedPreviewQuote.id}</div>
+                      <div className="text-[10px] text-slate-500 font-mono">التاريخ: {selectedPreviewQuote["تاريخ العرض"]}</div>
+                    </div>
+                  </div>
+
+                  {/* تفاصيل العميل والحدث */}
+                  <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+                    <div className="space-y-1.5">
+                      <div><span className="text-slate-400 font-bold">اسم العميل (الشركة):</span> <span className="font-extrabold text-slate-800">{selectedPreviewQuote["اسم الشركة"] || company["اسم الشركة"]}</span></div>
+                      <div><span className="text-slate-400 font-bold">مسؤول التواصل:</span> <span className="font-extrabold text-slate-800">{company["الاسم"] || company["الاسم التجاري"] || "غير محدد"}</span></div>
+                      <div><span className="text-slate-400 font-bold">رقم الجوال:</span> <span className="font-extrabold text-slate-800">{company["الجوال الرئيسي"] || "غير محدد"}</span></div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <div><span className="text-slate-400 font-bold">اسم المعرض المستهدف:</span> <span className="font-extrabold text-slate-800">{selectedPreviewQuote["المعرض"] || "معرض عام"}</span></div>
+                      <div><span className="text-slate-400 font-bold">رقم السجل التجاري:</span> <span className="font-extrabold text-slate-800">{selectedPreviewQuote["السجل التجاري"] || company["السجل التجاري"] || "غير مسجل"}</span></div>
+                      <div><span className="text-slate-400 font-bold">الرقم الضريبي للعميل:</span> <span className="font-extrabold text-slate-800">{selectedPreviewQuote["الرقم الضريبي"] || company["الرقم الضريبي"] || "غير مسجل"}</span></div>
+                    </div>
+                  </div>
+
+                  {/* جدول بنود العرض المالي */}
+                  <div className="border border-slate-300 rounded-xl overflow-hidden">
+                    <table className="w-full text-right text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-100 border-b border-slate-300 text-slate-800 font-black">
+                          <th className="p-3 w-1/12 text-center">#</th>
+                          <th className="p-3 w-6/12">البند / الخدمة التفصيلية</th>
+                          <th className="p-3 w-1/12 text-center">الكمية</th>
+                          <th className="p-3 w-2/12 text-center">سعر الوحدة</th>
+                          <th className="p-3 w-2/12 text-center">الإجمالي</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(selectedPreviewQuote.items || []).map((item: any, idx: number) => (
+                          <tr key={idx} className="border-b border-slate-200 last:border-0 hover:bg-slate-50/20">
+                            <td className="p-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                            <td className="p-3 font-extrabold text-slate-800 whitespace-pre-line leading-relaxed">
+                              {item.description}
+                            </td>
+                            <td className="p-3 text-center font-mono">{item.qty}</td>
+                            <td className="p-3 text-center font-mono">{(Number(item.price) || 0).toLocaleString()} ر.س</td>
+                            <td className="p-3 text-center font-mono font-bold text-slate-900">{(Number(item.total) || (item.qty * item.price) || 0).toLocaleString()} ر.s</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* ملخص المبالغ والضريبة */}
+                  <div className="flex flex-col items-end space-y-1.5 border-b border-slate-200 pb-4">
+                    <div className="flex items-center justify-between w-full max-w-xs text-xs text-slate-600">
+                      <span>المجموع قبل الضريبة:</span>
+                      <span className="font-bold">{(Number(selectedPreviewQuote["مبلغ العرض"]) || 0).toLocaleString()} ر.س</span>
+                    </div>
+                    <div className="flex items-center justify-between w-full max-w-xs text-xs text-slate-500">
+                      <span>ضريبة القيمة المضافة (15%):</span>
+                      <span className="font-mono">{((Number(selectedPreviewQuote["مبلغ العرض"]) || 0) * 0.15).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</span>
+                    </div>
+                    <div className="flex items-center justify-between w-full max-w-xs border-t border-slate-300 pt-2 text-xs">
+                      <span className="font-extrabold text-slate-900 text-sm">الإجمالي النهائي للتعميد المالي:</span>
+                      <span className="font-black text-emerald-700 text-sm font-mono">{((Number(selectedPreviewQuote["مبلغ العرض"]) || 0) * 1.15).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</span>
+                    </div>
+                  </div>
+
+                  {/* الشروط والأحكام */}
+                  <div className="space-y-1.5 text-right">
+                    <h4 className="text-xs font-black text-slate-900">شروط وأحكام العرض المالي:</h4>
+                    <p className="text-[11px] text-slate-600 leading-relaxed whitespace-pre-line bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      {selectedPreviewQuote["الشروط"] || "الشروط والأحكام:\n١. يسري هذا العرض لمدة ١٥ يوماً من تاريخ صدوره.\n٢. طريقة الدفع: ٥٠٪ دفعة مقدمة عند التعميد و٥٠٪ عند الانتهاء وقبل التوريد.\n٣. مدة التنفيذ: تبدأ من تاريخ استلام الدفعة المقدمة والتعميد الرسمي."}
+                    </p>
+                  </div>
+
+                  {/* تواقيع واعتمادات الأطراف */}
+                  <div className="grid grid-cols-2 gap-4 pt-12 text-center text-xs">
+                    <div className="space-y-6">
+                      <p className="font-bold text-slate-500">اعتماد وتوقيع (الطرف الأول: إكسبو تايم)</p>
+                      <div className="h-10"></div>
+                      <p className="font-extrabold text-slate-900 border-t border-dashed border-slate-300 pt-2 inline-block px-8">الختم والتوقيع الرسمي</p>
+                    </div>
+                    <div className="space-y-6">
+                      <p className="font-bold text-slate-500">اعتماد وتوقيع (الطرف الثاني: العميل)</p>
+                      <div className="h-10"></div>
+                      <p className="font-extrabold text-slate-900 border-t border-dashed border-slate-300 pt-2 inline-block px-8">{selectedPreviewQuote["اسم الشركة"] || company["اسم الشركة"]}</p>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
       </motion.div>
     </div>
   );
